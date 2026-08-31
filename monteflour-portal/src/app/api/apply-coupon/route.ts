@@ -11,23 +11,28 @@ export async function POST(req: NextRequest) {
   }
 
   const supabase = supabaseAdmin();
-  const { data: coupon, error } = await supabase
+  const { data: coupon } = await supabase
     .from('coupons')
     .select('*')
     .eq('code', cleanCode)
     .eq('active', true)
     .maybeSingle();
 
-  // TEMPORARY DEBUG: surface the real error instead of hiding it.
-  if (error) {
+  if (!coupon) {
+    return NextResponse.json({ valid: false, message: 'Invalid or inactive coupon code.' });
+  }
+  const today = new Date(new Date().toDateString());
+  if (coupon.expires_at && new Date(coupon.expires_at) < today) {
+    return NextResponse.json({ valid: false, message: 'This coupon has expired.' });
+  }
+  if (coupon.max_uses !== null && coupon.used_count >= coupon.max_uses) {
+    return NextResponse.json({ valid: false, message: 'This coupon has reached its usage limit.' });
+  }
+  if (sub < Number(coupon.min_order_amount)) {
     return NextResponse.json({
       valid: false,
-      message: 'DEBUG ERROR: ' + error.message + ' | code: ' + error.code + ' | details: ' + error.details,
+      message: `Minimum order for this coupon is ₹${Number(coupon.min_order_amount).toFixed(0)}.`,
     });
-  }
-
-  if (!coupon) {
-    return NextResponse.json({ valid: false, message: 'DEBUG: connected fine, but no matching row found for code=' + cleanCode });
   }
 
   const rawDiscount = coupon.discount_type === 'percent'
