@@ -38,3 +38,38 @@ export async function deleteCoupon(id: number) {
   await supabase.from('coupons').delete().eq('id', id);
   revalidatePath('/admin/coupons');
 }
+export async function createInfluencer(formData: FormData) {
+  const name = String(formData.get('name'));
+  const email = String(formData.get('email'));
+  const password = String(formData.get('password'));
+  const commission = Number(formData.get('commission'));
+  const couponCode = String(formData.get('coupon_code')).toUpperCase();
+
+  const supabase = supabaseAdmin();
+  
+  // 1. Create Auth User
+  const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+  });
+  
+  if (authError || !authData.user) return { error: authError?.message };
+
+  // 2. Create Influencer Profile
+  await supabase.from('influencers').insert({
+    id: authData.user.id,
+    name,
+    email,
+    commission_per_order: commission
+  });
+
+  // 3. Generate their exclusive coupon
+  await supabase.from('coupons').insert({
+    code: couponCode,
+    discount_type: 'percent',
+    discount_value: 10, // Default 10% off for their followers
+    influencer_id: authData.user.id,
+    active: true,
+  });
+}
