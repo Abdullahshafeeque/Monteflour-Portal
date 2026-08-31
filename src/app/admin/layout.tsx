@@ -9,6 +9,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <div className="nav-links">
           <Link href="/admin/dashboard">Orders</Link>
           <Link href="/admin/coupons">Coupons</Link>
+          <Link href="/admin/influencers">Influencers</Link>
           <Link href="/admin/payouts">Payouts</Link>
           <SignOutButton />
         </div>
