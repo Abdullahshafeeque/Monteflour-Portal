@@ -1,11 +1,11 @@
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
+import SignOutButton from '@/components/SignOutButton';
 
 export const dynamic = 'force-dynamic';
 
 export default async function InfluencerDashboard({ searchParams }: { searchParams: { user?: string } }) {
-  // For safety during initial setup, we can fetch the profile or pass ID securely. 
-  // Let's hook up the server action for requesting a payout directly:
   
   async function requestPayout(formData: FormData) {
     'use server';
@@ -26,16 +26,28 @@ export default async function InfluencerDashboard({ searchParams }: { searchPara
 
   const supabase = supabaseAdmin();
 
-  // For testing or multi-tenant lookup, let's grab the first influencer profile or check session
-  // (We can refine session auth for influencers next, but this makes the dashboard fully functional right now)
-  const { data: influencers } = await supabase.from('influencers').select('*').limit(1);
+  // 1. Check who is currently logged in
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+  // 2. If nobody is logged in, kick them back to the login page
+  if (authError || !user) {
+    redirect('/admin-login'); 
+  }
+
+  // 3. Fetch ONLY the influencer profile that matches this user's email
+  const { data: influencers } = await supabase
+    .from('influencers')
+    .select('*')
+    .eq('email', user.email)
+    .limit(1);
+
   const influencer = influencers?.[0];
 
   if (!influencer) {
     return (
       <div className="admin-main" style={{ textAlign: 'center', padding: '4rem' }}>
-        <h2>No Influencer Account Found</h2>
-        <p style={{ color: '#5A7A94', marginTop: '0.5rem' }}>Please create an influencer account from your admin panel first.</p>
+        <h2>Unauthorized Access</h2>
+        <p style={{ color: '#5A7A94', marginTop: '0.5rem' }}>Your account is not registered as an influencer. Please contact the administrator.</p>
       </div>
     );
   }
@@ -63,9 +75,12 @@ export default async function InfluencerDashboard({ searchParams }: { searchPara
   return (
     <main className="admin-main" style={{ maxWidth: '800px', margin: '2rem auto', padding: '0 1rem' }}>
       <div className="admin-card">
-        <h2 style={{ color: 'var(--navy)', fontFamily: 'Bebas Neue', fontSize: '2rem', letterSpacing: '0.04em' }}>
-          Welcome, {influencer.name}
-        </h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <h2 style={{ color: 'var(--navy)', fontFamily: 'Bebas Neue', fontSize: '2rem', letterSpacing: '0.04em', margin: 0 }}>
+            Welcome, {influencer.name}
+          </h2>
+          <SignOutButton />
+        </div>
         <p style={{ color: 'var(--muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
           Active Coupon Code: <strong style={{ color: 'var(--navy)' }}>{couponCodes.join(', ') || 'None assigned'}</strong>
         </p>
@@ -81,9 +96,9 @@ export default async function InfluencerDashboard({ searchParams }: { searchPara
           </div>
         </div>
 
-        <form action={requestPayout}>
+        <form action={async (formData) => { 'use server'; await requestPayout(formData); }}>
           <input type="hidden" name="influencer_id" value={influencer.id} />
-          <input type="hidden" name="amount" value={availableBalance} />
+          <input type="hidden" name="amount" value={availableBalance.toString()} />
           <button 
             type="submit"
             disabled={availableBalance <= 0}
