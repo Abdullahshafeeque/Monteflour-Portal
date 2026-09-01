@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-const ADMIN_EMAIL = "abdullahshafeeque@gmail.com";
+const ADMIN_EMAIL = "abdshafeeque@gmail.com";
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request: { headers: request.headers } });
