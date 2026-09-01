@@ -20,7 +20,7 @@ export default async function AdminInfluencersPage() {
       <div className="admin-card">
         <h3>Create New Influencer Account</h3>
         <CreateInfluencerForm />
-      </div>
+      </div> 
 
       <div className="admin-card">
         <h3>Registered Influencers</h3>
