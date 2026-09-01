@@ -1126,21 +1126,16 @@ export async function createInfluencer(formData: FormData) {
 
 import Link from 'next/link';
 import SignOutButton from '@/components/SignOutButton';
-import { supabaseAdmin } from '@/lib/supabaseServer';
+import { supabaseServerClient } from '@/lib/supabaseServer';
 import { redirect } from 'next/navigation';
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const supabase = supabaseAdmin();
-  
-  // 1. Get the logged-in user
+  const supabase = supabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  // 2. Define your master admin email here!
-  const myAdminEmail = "abdullahshafeeque@gmail.com"; // <-- CHANGE THIS TO YOUR ACTUAL ADMIN LOGIN EMAIL
+  const myAdminEmail = "abdshafeeque@gmail.com";
 
-  // 3. Block unauthorized access
   if (!user || user.email !== myAdminEmail) {
-    // If they aren't logged in, or if their email doesn't match the admin email, kick them out
     redirect('/influencer/dashboard');
   }
 
@@ -2095,6 +2090,53 @@ export default async function InfluencerDashboard({ searchParams }: { searchPara
 }
 
 
+===== FILE: src\app\influencer-login\page.tsx =====
+
+'use client';
+import { useState, type FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabaseBrowser } from '@/lib/supabaseBrowser';
+
+export default function InfluencerLoginPage() {
+  const router = useRouter();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    const supabase = supabaseBrowser();
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    setLoading(false);
+    if (error) {
+      setError('Invalid email or password.');
+      return;
+    }
+    router.push('/influencer/dashboard');
+    router.refresh();
+  }
+
+  return (
+    <div className="login-wrap">
+      <div className="login-box">
+        <h2>Influencer Login</h2>
+        {error && <div className="error">{error}</div>}
+        <form onSubmit={handleSubmit}>
+          <label>Email</label>
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+          <label>Password</label>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <button type="submit" disabled={loading}>{loading ? 'Logging in...' : 'Log In'}</button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+
 ===== FILE: src\app\order-success\page.tsx =====
 
 import { supabaseAdmin } from '@/lib/supabaseServer';
@@ -2192,19 +2234,32 @@ export function supabaseBrowser() {
 
 ===== FILE: src\lib\supabaseServer.ts =====
 
-import { createClient } from '@supabase/supabase-js';
 
-// Server-only client. Uses the SERVICE ROLE key, which bypasses Row Level
-// Security. Only ever import this inside API routes, Server Components, or
-// Server Actions — never inside a 'use client' component or anything that
-// ships to the browser.
-export function supabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
-  );
-}
+ import { createClient } from '@supabase/supabase-js';
+  import { createServerClient } from '@supabase/ssr';
+   import { cookies } from 'next/headers';
+   
+   export function supabaseAdmin() {
+     return createClient( 
+      process.env.NEXT_PUBLIC_SUPABASE_URL!, 
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+       { auth: { persistSession: false } }
+       );
+       }
+        export function supabaseServerClient() { 
+          const cookieStore = cookies();
+           return createServerClient(
+             process.env.NEXT_PUBLIC_SUPABASE_URL!, 
+             process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, 
+             { 
+              cookies: { 
+                get(name: string) { 
+                  return cookieStore.get(name)?.value; 
+                },
+               }, 
+              }
+             );
+             }
 
 
 ===== FILE: supabase\schema.sql =====
