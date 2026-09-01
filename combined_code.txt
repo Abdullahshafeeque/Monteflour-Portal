@@ -1085,7 +1085,8 @@ export async function deleteCoupon(id: number) {
   await supabase.from('coupons').delete().eq('id', id);
   revalidatePath('/admin/coupons');
 }
-export async function createInfluencer(formData: FormData) {
+
+export async function createInfluencer(prevState: any, formData: FormData) {
   const name = String(formData.get('name'));
   const email = String(formData.get('email'));
   const password = String(formData.get('password'));
@@ -1101,7 +1102,7 @@ export async function createInfluencer(formData: FormData) {
     email_confirm: true,
   });
   
-  if (authError || !authData.user) return { error: authError?.message };
+  if (authError || !authData.user) return { error: authError?.message, success: false };
 
   // 2. Create Influencer Profile
   await supabase.from('influencers').insert({
@@ -1115,10 +1116,46 @@ export async function createInfluencer(formData: FormData) {
   await supabase.from('coupons').insert({
     code: couponCode,
     discount_type: 'percent',
-    discount_value: 10, // Default 10% off for their followers
+    discount_value: 10,
     influencer_id: authData.user.id,
     active: true,
   });
+
+  revalidatePath('/admin/influencers');
+  return { error: null, success: true };
+}
+export async function deleteInfluencer(id: string) {
+  const supabase = supabaseAdmin();
+
+  // Detach their coupon(s) rather than deleting the coupon itself,
+  // so past orders that used the coupon code still make sense.
+  await supabase.from('coupons').update({ influencer_id: null }).eq('influencer_id', id);
+
+  // Snapshot their name/email onto any payout requests before the row disappears,
+  // so payout history still reads clearly after deletion.
+  const { data: influencer } = await supabase
+    .from('influencers')
+    .select('name, email')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (influencer) {
+    await supabase
+      .from('payout_requests')
+      .update({
+        influencer_name_snapshot: influencer.name,
+        influencer_email_snapshot: influencer.email,
+      })
+      .eq('influencer_id', id);
+  }
+
+  // Delete the influencer profile row.
+  await supabase.from('influencers').delete().eq('id', id);
+
+  // Delete their auth login so they can no longer sign in.
+  await supabase.auth.admin.deleteUser(id);
+
+  revalidatePath('/admin/influencers');
 }
 
 
@@ -1250,6 +1287,86 @@ export default async function CouponsPage() {
 }
 
 
+===== FILE: src\app\admin\create-influencer\route.ts =====
+
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabaseServer';
+
+export async function POST(req: NextRequest) {
+  const body = await req.json();
+  const name = String(body.name || '').trim();
+  const email = String(body.email || '').trim().toLowerCase();
+  const password = String(body.password || '');
+  const commission_per_order = Number(body.commission_per_order) || 0;
+  const couponCode = String(body.coupon_code || '').trim().toUpperCase();
+
+  if (!name || !email || password.length < 6) {
+    return NextResponse.json(
+      { message: 'Name, email and a password of at least 6 characters are required.' },
+      { status: 400 }
+    );
+  }
+
+  const supabase = supabaseAdmin();
+
+  // 1. Create the auth user so the influencer can log in.
+  // influencers.id is the SAME uuid as auth.users.id in this schema.
+  const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { role: 'influencer' },
+  });
+
+  if (authError || !authUser?.user) {
+    return NextResponse.json(
+      { message: authError?.message || 'Failed to create login for influencer.' },
+      { status: 400 }
+    );
+  }
+
+  const userId = authUser.user.id;
+
+  // 2. Create the influencer profile row, reusing the auth user's id.
+  const { data: influencer, error: influencerError } = await supabase
+    .from('influencers')
+    .insert({
+      id: userId,
+      auth_user_id: userId,
+      name,
+      email,
+      commission_per_order,
+    })
+    .select()
+    .single();
+
+  if (influencerError) {
+    // Roll back the auth user if the profile insert failed
+    await supabase.auth.admin.deleteUser(userId);
+    return NextResponse.json({ message: influencerError.message }, { status: 400 });
+  }
+
+  // 3. Optionally link an existing coupon to this influencer
+  if (couponCode) {
+    const { error: couponError } = await supabase
+      .from('coupons')
+      .update({ influencer_id: influencer.id })
+      .eq('code', couponCode);
+
+    if (couponError) {
+      return NextResponse.json(
+        {
+          message: `Influencer created, but coupon linking failed: ${couponError.message}`,
+        },
+        { status: 207 }
+      );
+    }
+  }
+
+  return NextResponse.json({ success: true, influencer });
+}
+
+
 ===== FILE: src\app\admin\dashboard\page.tsx =====
 
 import { supabaseAdmin } from '@/lib/supabaseServer';
@@ -1320,12 +1437,153 @@ export default async function DashboardPage() {
 
 ===== FILE: src\app\admin\influencers\CreateInfluencerForm.tsx =====
 
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+
+export default function CreateInfluencerForm() {
+  const router = useRouter();
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [commission, setCommission] = useState('');
+  const [couponCode, setCouponCode] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setMessage(null);
+
+    try {
+      const res = await fetch('/api/admin/create-influencer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          email,
+          password,
+          commission_per_order: commission,
+          coupon_code: couponCode,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setMessage({ type: 'error', text: data.message || 'Failed to create influencer.' });
+        return;
+      }
+
+      setMessage({ type: 'success', text: 'Influencer account created.' });
+      setName('');
+      setEmail('');
+      setPassword('');
+      setCommission('');
+      setCouponCode('');
+      router.refresh();
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Something went wrong. Please try again.' });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '1rem', marginTop: '1rem' }}>
+      <div>
+        <label htmlFor="name">Full Name</label>
+        <input
+          id="name"
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+          className="admin-input"
+        />
+      </div>
+
+      <div>
+        <label htmlFor="email">Email</label>
+        <input
+          id="email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+          className="admin-input"
+        />
+      </div>
+
+      <div>
+        <label htmlFor="password">Login Password</label>
+        <input
+          id="password"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          minLength={6}
+          className="admin-input"
+        />
+      </div>
+
+      <div>
+        <label htmlFor="commission">Commission per Order (?)</label>
+        <input
+          id="commission"
+          type="number"
+          step="0.01"
+          min="0"
+          value={commission}
+          onChange={(e) => setCommission(e.target.value)}
+          required
+          className="admin-input"
+        />
+      </div>
+
+      <div>
+        <label htmlFor="coupon">Assign Coupon Code (optional)</label>
+        <input
+          id="coupon"
+          type="text"
+          value={couponCode}
+          onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+          placeholder="e.g. INFLU10"
+          className="admin-input"
+        />
+      </div>
+
+      {message && (
+        <p style={{ color: message.type === 'error' ? '#c0392b' : '#2e7d32', fontSize: '0.9rem' }}>
+          {message.text}
+        </p>
+      )}
+
+      <button type="submit" disabled={loading} className="btn-submit">
+        {loading ? 'Creating...' : 'Create Influencer Account'}
+      </button>
+    </form>
+  );
+}
+
+
+===== FILE: src\app\admin\influencers\DeleteInfluencerButton.tsx =====
+
+
+
+===== FILE: src\app\admin\influencers\influencer_detail_page.tsx =====
+
 
 
 ===== FILE: src\app\admin\influencers\page.tsx =====
 
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import CreateInfluencerForm from './CreateInfluencerForm';
+import Link from 'next/link';
+import DeleteInfluencerButton from './DeleteInfluencerButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -1358,6 +1616,7 @@ export default async function AdminInfluencersPage() {
                 <th>Email</th>
                 <th>Commission / Order</th>
                 <th>Assigned Coupon</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1372,6 +1631,12 @@ export default async function AdminInfluencersPage() {
                         {c.code}
                       </span>
                     ))}
+                  </td>
+                  <td style={{ display: 'flex', gap: '0.5rem' }}>
+                    <Link href={`/admin/influencers/${inf.id}`} className="btn-secondary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
+                      View Details
+                    </Link>
+                    <DeleteInfluencerButton id={inf.id} name={inf.name} />
                   </td>
                 </tr>
               ))}
@@ -1494,6 +1759,79 @@ export default function AdminLoginPage() {
       </div>
     </div>
   );
+}
+
+
+===== FILE: src\app\api\admin\create-influencer\route.ts =====
+
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabaseServer';
+
+export async function POST(req: NextRequest) {
+  const body = await req.json();
+  const name = String(body.name || '').trim();
+  const email = String(body.email || '').trim().toLowerCase();
+  const password = String(body.password || '');
+  const commission_per_order = Number(body.commission_per_order) || 0;
+  const couponCode = String(body.coupon_code || '').trim().toUpperCase();
+
+  if (!name || !email || password.length < 6) {
+    return NextResponse.json(
+      { message: 'Name, email and a password of at least 6 characters are required.' },
+      { status: 400 }
+    );
+  }
+
+  const supabase = supabaseAdmin();
+
+  const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { role: 'influencer' },
+  });
+
+  if (authError || !authUser?.user) {
+    return NextResponse.json(
+      { message: authError?.message || 'Failed to create login for influencer.' },
+      { status: 400 }
+    );
+  }
+
+  const userId = authUser.user.id;
+
+  const { data: influencer, error: influencerError } = await supabase
+    .from('influencers')
+    .insert({
+      id: userId,
+      auth_user_id: userId,
+      name,
+      email,
+      commission_per_order,
+    })
+    .select()
+    .single();
+
+  if (influencerError) {
+    await supabase.auth.admin.deleteUser(userId);
+    return NextResponse.json({ message: influencerError.message }, { status: 400 });
+  }
+
+  if (couponCode) {
+    const { error: couponError } = await supabase
+      .from('coupons')
+      .update({ influencer_id: influencer.id })
+      .eq('code', couponCode);
+
+    if (couponError) {
+      return NextResponse.json(
+        { message: `Influencer created, but coupon linking failed: ${couponError.message}` },
+        { status: 207 }
+      );
+    }
+  }
+
+  return NextResponse.json({ success: true, influencer });
 }
 
 
