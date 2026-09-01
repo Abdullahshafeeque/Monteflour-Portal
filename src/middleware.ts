@@ -1,8 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-// Protects everything under /admin/* — if there's no valid Supabase Auth
-// session, bounce to /admin-login before the page even renders.
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request: { headers: request.headers } });
 
@@ -26,9 +24,20 @@ export async function middleware(request: NextRequest) {
 
   const { data: { session } } = await supabase.auth.getSession();
 
+  // 1. If not logged in at all, redirect to login page
   if (!session) {
     const url = request.nextUrl.clone();
     url.pathname = '/admin-login';
+    return NextResponse.redirect(url);
+  }
+
+  // 2. Define your master admin email here!
+  const myAdminEmail = "abdullahshafeeque@gmail.com"; // <-- Change if your admin login email is different
+
+  // 3. If a logged-in user is NOT you, block them from the admin panel and send them to their dashboard
+  if (session.user.email !== myAdminEmail) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/influencer/dashboard';
     return NextResponse.redirect(url);
   }
 
