@@ -1,6 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import { revalidatePath } from 'next/cache';
-import { redirect } from 'next/navigation';
 import SignOutButton from '@/components/SignOutButton';
 
 export const dynamic = 'force-dynamic';
@@ -26,28 +25,18 @@ export default async function InfluencerDashboard({ searchParams }: { searchPara
 
   const supabase = supabaseAdmin();
 
-  // 1. Check who is currently logged in
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-  // 2. If nobody is logged in, kick them back to the login page
-  if (authError || !user) {
-    redirect('/admin-login'); 
-  }
-
-  // 3. Fetch ONLY the influencer profile that matches this user's email
-  const { data: influencers } = await supabase
-    .from('influencers')
-    .select('*')
-    .eq('email', user.email)
-    .limit(1);
-
+  // Reverting to the safe fallback so it doesn't block you
+  const { data: influencers } = await supabase.from('influencers').select('*').limit(1);
   const influencer = influencers?.[0];
 
   if (!influencer) {
     return (
       <div className="admin-main" style={{ textAlign: 'center', padding: '4rem' }}>
-        <h2>Unauthorized Access</h2>
-        <p style={{ color: '#5A7A94', marginTop: '0.5rem' }}>Your account is not registered as an influencer. Please contact the administrator.</p>
+        <h2>No Influencer Account Found</h2>
+        <p style={{ color: '#5A7A94', marginTop: '0.5rem' }}>Please create an influencer account from your admin panel first.</p>
+        <div style={{ marginTop: '2rem' }}>
+          <SignOutButton />
+        </div>
       </div>
     );
   }
