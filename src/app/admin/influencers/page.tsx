@@ -1,5 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import CreateInfluencerForm from './CreateInfluencerForm';
+import Link from 'next/link';
+import DeleteInfluencerButton from './DeleteInfluencerButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,6 +34,7 @@ export default async function AdminInfluencersPage() {
                 <th>Email</th>
                 <th>Commission / Order</th>
                 <th>Assigned Coupon</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -46,6 +49,12 @@ export default async function AdminInfluencersPage() {
                         {c.code}
                       </span>
                     ))}
+                  </td>
+                  <td style={{ display: 'flex', gap: '0.5rem' }}>
+                    <Link href={`/admin/influencers/${inf.id}`} className="btn-secondary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
+                      View Details
+                    </Link>
+                    <DeleteInfluencerButton id={inf.id} name={inf.name} />
                   </td>
                 </tr>
               ))}
