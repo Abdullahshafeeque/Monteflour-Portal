@@ -38,7 +38,8 @@ export async function deleteCoupon(id: number) {
   await supabase.from('coupons').delete().eq('id', id);
   revalidatePath('/admin/coupons');
 }
-export async function createInfluencer(formData: FormData) {
+
+export async function createInfluencer(prevState: any, formData: FormData) {
   const name = String(formData.get('name'));
   const email = String(formData.get('email'));
   const password = String(formData.get('password'));
@@ -54,7 +55,7 @@ export async function createInfluencer(formData: FormData) {
     email_confirm: true,
   });
   
-  if (authError || !authData.user) return { error: authError?.message };
+  if (authError || !authData.user) return { error: authError?.message, success: false };
 
   // 2. Create Influencer Profile
   await supabase.from('influencers').insert({
@@ -68,8 +69,44 @@ export async function createInfluencer(formData: FormData) {
   await supabase.from('coupons').insert({
     code: couponCode,
     discount_type: 'percent',
-    discount_value: 10, // Default 10% off for their followers
+    discount_value: 10,
     influencer_id: authData.user.id,
     active: true,
   });
+
+  revalidatePath('/admin/influencers');
+  return { error: null, success: true };
+}
+export async function deleteInfluencer(id: string) {
+  const supabase = supabaseAdmin();
+
+  // Detach their coupon(s) rather than deleting the coupon itself,
+  // so past orders that used the coupon code still make sense.
+  await supabase.from('coupons').update({ influencer_id: null }).eq('influencer_id', id);
+
+  // Snapshot their name/email onto any payout requests before the row disappears,
+  // so payout history still reads clearly after deletion.
+  const { data: influencer } = await supabase
+    .from('influencers')
+    .select('name, email')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (influencer) {
+    await supabase
+      .from('payout_requests')
+      .update({
+        influencer_name_snapshot: influencer.name,
+        influencer_email_snapshot: influencer.email,
+      })
+      .eq('influencer_id', id);
+  }
+
+  // Delete the influencer profile row.
+  await supabase.from('influencers').delete().eq('id', id);
+
+  // Delete their auth login so they can no longer sign in.
+  await supabase.auth.admin.deleteUser(id);
+
+  revalidatePath('/admin/influencers');
 }
