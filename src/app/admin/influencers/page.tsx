@@ -1,8 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import CreateInfluencerForm from './CreateInfluencerForm';
 
-// ... rest of the file stays the same
-
 export const dynamic = 'force-dynamic';
 
 export default async function AdminInfluencersPage() {
@@ -20,7 +18,7 @@ export default async function AdminInfluencersPage() {
       <div className="admin-card">
         <h3>Create New Influencer Account</h3>
         <CreateInfluencerForm />
-      </div> 
+      </div>
 
       <div className="admin-card">
         <h3>Registered Influencers</h3>
