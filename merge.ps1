@@ -17,7 +17,7 @@ Get-ChildItem -Path . -Recurse -File | Where-Object {
 } | ForEach-Object {
     $relativePath = $_.FullName.Substring((Get-Location).Path.Length + 1)
     Add-Content -Path $outputFile -Value "`n`n===== FILE: $relativePath =====`n"
-    Get-Content $_.FullName | Add-Content -Path $outputFile
+    Get-Content -LiteralPath $_.FullName | Add-Content -LiteralPath $outputFile
 }
 
 Write-Host "Done! Combined file saved as $outputFile"

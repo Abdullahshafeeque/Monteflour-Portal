@@ -1112,14 +1112,23 @@ export async function createInfluencer(prevState: any, formData: FormData) {
     commission_per_order: commission
   });
 
-  // 3. Generate their exclusive coupon
-  await supabase.from('coupons').insert({
-    code: couponCode,
-    discount_type: 'percent',
-    discount_value: 10,
-    influencer_id: authData.user.id,
-    active: true,
-  });
+  // 3. Generate their exclusive coupon (skip if no code was entered)
+  if (couponCode && couponCode !== 'NULL') {
+    const { error: couponError } = await supabase.from('coupons').insert({
+      code: couponCode,
+      discount_type: 'percent',
+      discount_value: 10,
+      influencer_id: authData.user.id,
+      active: true,
+    });
+
+    if (couponError) {
+      // Roll back the half-created influencer so retrying with a different code works cleanly
+      await supabase.from('influencers').delete().eq('id', authData.user.id);
+      await supabase.auth.admin.deleteUser(authData.user.id);
+      return { error: `Coupon code "${couponCode}" is already in use. Influencer was not created.`, success: false };
+    }
+  }
 
   revalidatePath('/admin/influencers');
   return { error: null, success: true };
@@ -1143,17 +1152,23 @@ export async function deleteInfluencer(id: string) {
     await supabase
       .from('payout_requests')
       .update({
+        influencer_id: null,
         influencer_name_snapshot: influencer.name,
         influencer_email_snapshot: influencer.email,
       })
       .eq('influencer_id', id);
   }
 
-  // Delete the influencer profile row.
+  // Delete the influencer profile row first — it references the auth user, so it has to
+  // go before the auth user can be deleted.
   await supabase.from('influencers').delete().eq('id', id);
 
-  // Delete their auth login so they can no longer sign in.
-  await supabase.auth.admin.deleteUser(id);
+  // Delete their auth login so they can no longer sign in. Log (don't block) if this fails —
+  // the influencer is already removed from your list either way at this point.
+  const { error: authDeleteError } = await supabase.auth.admin.deleteUser(id);
+  if (authDeleteError) {
+    console.error('Failed to delete influencer auth user:', authDeleteError.message);
+  }
 
   revalidatePath('/admin/influencers');
 }
@@ -1348,18 +1363,34 @@ export async function POST(req: NextRequest) {
 
   // 3. Optionally link an existing coupon to this influencer
   if (couponCode) {
-    const { error: couponError } = await supabase
+    const { error: updateError, count } = await supabase
       .from('coupons')
-      .update({ influencer_id: influencer.id })
+      .update({ influencer_id: influencer.id }, { count: 'exact' })
       .eq('code', couponCode);
 
-    if (couponError) {
+    if (updateError) {
       return NextResponse.json(
-        {
-          message: `Influencer created, but coupon linking failed: ${couponError.message}`,
-        },
+        { message: `Influencer created, but coupon linking failed: ${updateError.message}` },
         { status: 207 }
       );
+    }
+
+    // No existing coupon had this code, so create a new one for this influencer.
+    if (!count) {
+      const { error: insertError } = await supabase.from('coupons').insert({
+        code: couponCode,
+        discount_type: 'percent',
+        discount_value: 10,
+        influencer_id: influencer.id,
+        active: true,
+      });
+
+      if (insertError) {
+        return NextResponse.json(
+          { message: `Influencer created, but coupon linking failed: ${insertError.message}` },
+          { status: 207 }
+        );
+      }
     }
   }
 
@@ -1477,7 +1508,11 @@ export default function CreateInfluencerForm() {
         return;
       }
 
-      setMessage({ type: 'success', text: 'Influencer account created.' });
+      if (res.status === 207) {
+        setMessage({ type: 'error', text: data.message || 'Influencer created, but the coupon could not be linked.' });
+      } else {
+        setMessage({ type: 'success', text: 'Influencer account created.' });
+      }
       setName('');
       setEmail('');
       setPassword('');
@@ -1491,6 +1526,7 @@ export default function CreateInfluencerForm() {
     }
   }
 
+  
   return (
     <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '1rem', marginTop: '1rem' }}>
       <div>
@@ -1531,7 +1567,7 @@ export default function CreateInfluencerForm() {
       </div>
 
       <div>
-        <label htmlFor="commission">Commission per Order (?)</label>
+        <label htmlFor="commission">Commission per Order (₹)</label>
         <input
           id="commission"
           type="number"
@@ -1702,6 +1738,173 @@ export default async function AdminInfluencersPage() {
 
 ===== FILE: src\app\admin\influencers\[id]\page.tsx =====
 
+import { supabaseAdmin } from '@/lib/supabaseServer';
+import Link from 'next/link';
+import { notFound } from 'next/navigation';
+
+export const dynamic = 'force-dynamic';
+
+type DayStat = {
+  date: string;
+  orders: number;
+  paidOrders: number;
+  revenue: number;
+  commission: number;
+};
+
+export default async function InfluencerDetailPage({ params }: { params: { id: string } }) {
+  const supabase = supabaseAdmin();
+
+  // Fetch influencer profile + coupons
+  const { data: influencer } = await supabase
+    .from('influencers')
+    .select('*, coupons(code, active, discount_type, discount_value, used_count)')
+    .eq('id', params.id)
+    .maybeSingle();
+
+  if (!influencer) return notFound();
+
+  const couponCodes = (influencer.coupons || []).map((c: any) => c.code);
+
+  // Fetch orders driven by this influencer’s coupons
+  const { data: orders } = couponCodes.length
+    ? await supabase
+        .from('orders')
+        .select('*')
+        .in('coupon_code', couponCodes)
+        .order('created_at', { ascending: false })
+    : { data: [] as any[] };
+
+  const allOrders = orders || [];
+  const paidOrders = allOrders.filter((o: any) => o.payment_status === 'paid');
+  const failedOrders = allOrders.filter((o: any) => o.payment_status === 'failed');
+  const pendingOrders = allOrders.filter((o: any) => o.payment_status === 'pending');
+
+  const commissionPerOrder = Number(influencer.commission_per_order || 0);
+  const totalRevenue = paidOrders.reduce((sum: number, o: any) => sum + Number(o.total_amount || 0), 0);
+  const totalCommissionEarned = paidOrders.reduce((sum: number, o: any) => sum + Number(o.quantity || 0), 0) * commissionPerOrder;
+
+  // Payout history
+  const { data: payouts } = await supabase
+    .from('payout_requests')
+    .select('*')
+    .eq('influencer_id', params.id)
+    .order('created_at', { ascending: false });
+
+  const allPayouts = payouts || [];
+  const totalPaidOut = allPayouts.filter((p: any) => p.status === 'paid').reduce((s: number, p: any) => s + Number(p.amount), 0);
+  const totalPendingPayout = allPayouts.filter((p: any) => p.status === 'pending').reduce((s: number, p: any) => s + Number(p.amount), 0);
+  const availableBalance = totalCommissionEarned - totalPaidOut - totalPendingPayout;
+
+  // Day-by-day breakdown
+  const dayMap = new Map<string, DayStat>();
+  for (const o of allOrders) {
+    const d = new Date(o.created_at);
+    const key = d.toISOString().slice(0, 10);
+    if (!dayMap.has(key)) {
+      dayMap.set(key, { date: key, orders: 0, paidOrders: 0, revenue: 0, commission: 0 });
+    }
+    const stat = dayMap.get(key)!;
+    stat.orders += 1;
+    if (o.payment_status === 'paid') {
+      stat.paidOrders += 1;
+      stat.revenue += Number(o.total_amount || 0);
+      stat.commission += commissionPerOrder * Number(o.quantity || 0);
+    }
+  }
+  const dayStats = Array.from(dayMap.values()).sort((a, b) => (a.date < b.date ? 1 : -1));
+
+  return (
+    <main className="admin-main">
+      <div style={{ marginBottom: '1rem' }}>
+        <Link href="/admin/influencers" style={{ fontSize: '0.9rem' }}>
+          &larr; Back to Influencers
+        </Link>
+      </div>
+
+      <div className="admin-card">
+        <h2>{influencer.name}</h2>
+        <p style={{ color: 'var(--muted)' }}>{influencer.email}</p>
+        <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
+          Coupon(s): {couponCodes.length ? couponCodes.join(', ') : 'None assigned'}
+        </p>
+        <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--navy)', marginTop: '0.5rem' }}>
+          ₹{availableBalance.toFixed(2)} Available Balance
+        </div>
+      </div>
+
+      <div className="admin-card">
+        <h3>Performance Summary</h3>
+        <ul>
+          <li>Total Orders: {allOrders.length}</li>
+          <li>Paid Orders: {paidOrders.length}</li>
+          <li>Pending Orders: {pendingOrders.length}</li>
+          <li>Failed Orders: {failedOrders.length}</li>
+          <li>Total Revenue: ₹{totalRevenue.toFixed(2)}</li>
+          <li>Total Commission Earned: ₹{totalCommissionEarned.toFixed(2)}</li>
+          <li>Already Paid Out: ₹{totalPaidOut.toFixed(2)}</li>
+          <li>Pending Payout Requests: ₹{totalPendingPayout.toFixed(2)}</li>
+        </ul>
+      </div>
+
+      <div className="admin-card">
+        <h3>Orders by Day</h3>
+        {dayStats.length === 0 ? (
+          <p className="empty">No orders yet.</p>
+        ) : (
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Total Orders</th>
+                <th>Paid Orders</th>
+                <th>Revenue</th>
+                <th>Commission</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dayStats.map((d) => (
+                <tr key={d.date}>
+                  <td>{new Date(d.date).toLocaleDateString()}</td>
+                  <td>{d.orders}</td>
+                  <td>{d.paidOrders}</td>
+                  <td>₹{d.revenue.toFixed(2)}</td>
+                  <td>₹{d.commission.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="admin-card">
+        <h3>Payout History</h3>
+        {allPayouts.length === 0 ? (
+          <p className="empty">No payout requests yet.</p>
+        ) : (
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Amount</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allPayouts.map((p: any) => (
+                <tr key={p.id}>
+                  <td>{new Date(p.created_at).toLocaleDateString()}</td>
+                  <td>₹{Number(p.amount).toFixed(2)}</td>
+                  <td>{p.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </main>
+  );
+}
 
 
 ===== FILE: src\app\admin\payouts\page.tsx =====
@@ -2195,11 +2398,11 @@ export default function CheckoutPage() {
   }
 
   function changeQty(delta: number) {
-    setQty((q) => {
-      const next = Math.max(1, q + delta);
-      if (appliedCoupon) setTimeout(() => applyCoupon(appliedCoupon.code), 0);
-      return next;
-    });
+    setQty((q) => Math.max(1, q + delta));
+    if (appliedCoupon) {
+      setAppliedCoupon(null);
+      setCouponMsg({ text: 'Quantity changed — please reapply your coupon.', ok: false });
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -2414,7 +2617,7 @@ export default async function InfluencerDashboard() {
   const paidOrders = allOrders.filter((o: any) => o.payment_status === 'paid');
   const commissionPerOrder = Number(influencer.commission_per_order || 0);
   const totalRevenue = paidOrders.reduce((sum: number, o: any) => sum + Number(o.total_amount || 0), 0);
-  const totalCommissionEarned = paidOrders.length * commissionPerOrder;
+  const totalCommissionEarned = paidOrders.reduce((sum: number, o: any) => sum + Number(o.quantity || 0), 0) * commissionPerOrder;
 
 
   // Day-by-day breakdown
@@ -2430,7 +2633,7 @@ export default async function InfluencerDashboard() {
     if (o.payment_status === 'paid') {
       stat.paidOrders += 1;
       stat.revenue += Number(o.total_amount || 0);
-      stat.commission += commissionPerOrder;
+      stat.commission += commissionPerOrder * Number(o.quantity || 0);
     }
   }
   const dayStats = Array.from(dayMap.values()).sort((a, b) => (a.date < b.date ? 1 : -1));
@@ -2462,12 +2665,13 @@ export default async function InfluencerDashboard() {
     const { data: cpns } = await adminClient.from('coupons').select('code').eq('influencer_id', inf.id);
     const codes = cpns?.map(c => c.code) || [];
 
-    const { count } = await adminClient.from('orders')
-      .select('*', { count: 'exact', head: true })
+    const { data: paidOrdersData } = await adminClient.from('orders')
+      .select('quantity')
       .in('coupon_code', codes.length ? codes : ['__none__'])
       .eq('payment_status', 'paid');
 
-    const earned = (count || 0) * Number(inf.commission_per_order || 0);
+    const totalUnits = (paidOrdersData || []).reduce((sum: number, o: any) => sum + Number(o.quantity || 0), 0);
+    const earned = totalUnits * Number(inf.commission_per_order || 0);
     const { data: existingPayouts } = await adminClient.from('payout_requests').select('amount').eq('influencer_id', inf.id);
     const requested = existingPayouts?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
 
