@@ -55,11 +55,11 @@ export default function CheckoutPage() {
   }
 
   function changeQty(delta: number) {
-    setQty((q) => {
-      const next = Math.max(1, q + delta);
-      if (appliedCoupon) setTimeout(() => applyCoupon(appliedCoupon.code), 0);
-      return next;
-    });
+    setQty((q) => Math.max(1, q + delta));
+    if (appliedCoupon) {
+      setAppliedCoupon(null);
+      setCouponMsg({ text: 'Quantity changed — please reapply your coupon.', ok: false });
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {

@@ -1572,6 +1572,57 @@ export default function CreateInfluencerForm() {
 
 ===== FILE: src\app\admin\influencers\DeleteInfluencerButton.tsx =====
 
+'use client';
+
+import { useState, useTransition } from 'react';
+import { deleteInfluencer } from '../actions';
+
+export default function DeleteInfluencerButton({ id, name }: { id: string; name: string }) {
+  const [isPending, startTransition] = useTransition();
+  const [confirming, setConfirming] = useState(false);
+
+  if (confirming) {
+    return (
+      <span style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', fontSize: '0.85rem' }}>
+        <span style={{ color: '#c0392b' }}>Delete {name}?</span>
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() =>
+            startTransition(async () => {
+              await deleteInfluencer(id);
+              setConfirming(false);
+            })
+          }
+          className="btn-submit"
+          style={{ padding: '0.4rem 0.7rem', fontSize: '0.8rem', background: '#c0392b' }}
+        >
+          {isPending ? 'Deleting...' : 'Yes, delete'}
+        </button>
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() => setConfirming(false)}
+          className="btn-secondary"
+          style={{ padding: '0.4rem 0.7rem', fontSize: '0.8rem' }}
+        >
+          Cancel
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setConfirming(true)}
+      className="btn-secondary"
+      style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem', color: '#c0392b' }}
+    >
+      Delete
+    </button>
+  );
+}
 
 
 ===== FILE: src\app\admin\influencers\influencer_detail_page.tsx =====
@@ -1647,6 +1698,10 @@ export default async function AdminInfluencersPage() {
     </main>
   );
 }
+
+
+===== FILE: src\app\admin\influencers\[id]\page.tsx =====
+
 
 
 ===== FILE: src\app\admin\payouts\page.tsx =====
@@ -2302,70 +2357,138 @@ export default function CheckoutPage() {
 ===== FILE: src\app\influencer\dashboard\page.tsx =====
 
 import { supabaseAdmin } from '@/lib/supabaseServer';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import SignOutButton from '@/components/SignOutButton';
 
 export const dynamic = 'force-dynamic';
 
-export default async function InfluencerDashboard({ searchParams }: { searchParams: { user?: string } }) {
-  
-  async function requestPayout(formData: FormData) {
-    'use server';
-    const influencerId = String(formData.get('influencer_id'));
-    const amount = Number(formData.get('amount'));
-    
-    if (amount <= 0 || !influencerId) return;
+async function getSession() {
+  const cookieStore = cookies();
+  const supabaseSession = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) { return cookieStore.get(name)?.value; },
+        set() {},
+        remove() {},
+      },
+    }
+  );
+  const { data: { session } } = await supabaseSession.auth.getSession();
+  return session;
+}
 
-    const adminClient = supabaseAdmin();
-    await adminClient.from('payout_requests').insert({
-      influencer_id: influencerId,
-      amount: amount,
-      status: 'pending'
-    });
-    
-    revalidatePath('/influencer/dashboard');
-  }
-
+export default async function InfluencerDashboard() {
+  const session = await getSession();
   const supabase = supabaseAdmin();
 
-  // Reverting to the safe fallback so it doesn't block you
-  const { data: influencers } = await supabase.from('influencers').select('*').limit(1);
-  const influencer = influencers?.[0];
+  const { data: influencer } = await supabase
+    .from('influencers')
+    .select('*')
+    .eq('id', session?.user.id)
+    .maybeSingle();
 
   if (!influencer) {
     return (
       <div className="admin-main" style={{ textAlign: 'center', padding: '4rem' }}>
         <h2>No Influencer Account Found</h2>
-        <p style={{ color: '#5A7A94', marginTop: '0.5rem' }}>Please create an influencer account from your admin panel first.</p>
-        <div style={{ marginTop: '2rem' }}>
-          <SignOutButton />
-        </div>
+        <p style={{ color: '#5A7A94', marginTop: '0.5rem' }}>
+          This login isn't linked to an influencer profile. Contact the site admin.
+        </p>
+        <div style={{ marginTop: '2rem' }}><SignOutButton /></div>
       </div>
     );
   }
 
-  // Fetch coupons for this influencer
   const { data: coupons } = await supabase.from('coupons').select('code').eq('influencer_id', influencer.id);
   const couponCodes = coupons?.map(c => c.code) || [];
 
-  // Calculate Total Orders Driven
-  const { count: orderCount } = await supabase.from('orders')
-    .select('*', { count: 'exact', head: true })
-    .in('coupon_code', couponCodes)
-    .eq('payment_status', 'paid');
-    
-  const totalEarned = (orderCount || 0) * Number(influencer.commission_per_order || 0);
+  const { data: orders } = couponCodes.length
+    ? await supabase.from('orders').select('*').in('coupon_code', couponCodes).order('created_at', { ascending: false })
+    : { data: [] };
 
-  // Calculate Total Payouts Requested
-  const { data: payouts } = await supabase.from('payout_requests')
-    .select('amount')
-    .eq('influencer_id', influencer.id);
-    
-  const totalRequested = payouts?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-  const availableBalance = totalEarned - totalRequested;
+  const allOrders = orders || [];
+  const paidOrders = allOrders.filter((o: any) => o.payment_status === 'paid');
+  const commissionPerOrder = Number(influencer.commission_per_order || 0);
+  const totalRevenue = paidOrders.reduce((sum: number, o: any) => sum + Number(o.total_amount || 0), 0);
+  const totalCommissionEarned = paidOrders.length * commissionPerOrder;
+
+
+  // Day-by-day breakdown
+  const dayMap = new Map<string, { date: string; orders: number; paidOrders: number; revenue: number; commission: number }>();
+  for (const o of allOrders) {
+    const d = new Date(o.created_at);
+    const key = d.toISOString().slice(0, 10);
+    if (!dayMap.has(key)) {
+      dayMap.set(key, { date: key, orders: 0, paidOrders: 0, revenue: 0, commission: 0 });
+    }
+    const stat = dayMap.get(key)!;
+    stat.orders += 1;
+    if (o.payment_status === 'paid') {
+      stat.paidOrders += 1;
+      stat.revenue += Number(o.total_amount || 0);
+      stat.commission += commissionPerOrder;
+    }
+  }
+  const dayStats = Array.from(dayMap.values()).sort((a, b) => (a.date < b.date ? 1 : -1));
+  const { data: payoutsData } = await supabase
+    .from('payout_requests')
+    .select('*')
+    .eq('influencer_id', influencer.id)
+    .order('created_at', { ascending: false });
+
+  const payouts = payoutsData || [];
+    const totalPaidOut = payouts.filter((p: any) => p.status === 'paid')
+    .reduce((s: number, p: any) => s + Number(p.amount), 0) || 0;
+
+  const totalPendingPayout = payouts.filter((p: any) => p.status === 'pending')
+    .reduce((s: number, p: any) => s + Number(p.amount), 0) || 0;
+
+  const availableBalance = totalCommissionEarned - totalPaidOut - totalPendingPayout;
+
+
+  async function requestPayout() {
+    'use server';
+    const session = await getSession();
+    if (!session) return;
+
+    const adminClient = supabaseAdmin();
+    const { data: inf } = await adminClient.from('influencers').select('*').eq('id', session.user.id).maybeSingle();
+    if (!inf) return;
+
+    const { data: cpns } = await adminClient.from('coupons').select('code').eq('influencer_id', inf.id);
+    const codes = cpns?.map(c => c.code) || [];
+
+    const { count } = await adminClient.from('orders')
+      .select('*', { count: 'exact', head: true })
+      .in('coupon_code', codes.length ? codes : ['__none__'])
+      .eq('payment_status', 'paid');
+
+    const earned = (count || 0) * Number(inf.commission_per_order || 0);
+    const { data: existingPayouts } = await adminClient.from('payout_requests').select('amount').eq('influencer_id', inf.id);
+    const requested = existingPayouts?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+
+    const balance = Math.round((earned - requested) * 100) / 100;
+    if (balance <= 0) return;
+
+    await adminClient.from('payout_requests').insert({
+      influencer_id: inf.id,
+      amount: balance,
+      status: 'pending',
+    });
+
+    revalidatePath('/influencer/dashboard');
+  }
+
 
   return (
-    <main className="admin-main" style={{ maxWidth: '800px', margin: '2rem auto', padding: '0 1rem' }}>
+
+
+    <main className="admin-main" style={{ maxWidth: '900px', margin: '2rem auto', padding: '0 1rem' }}>
+      {/* Summary + Request Payout */}
       <div className="admin-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
           <h2 style={{ color: 'var(--navy)', fontFamily: 'Bebas Neue', fontSize: '2rem', letterSpacing: '0.04em', margin: 0 }}>
@@ -2383,15 +2506,13 @@ export default async function InfluencerDashboard({ searchParams }: { searchPara
             <div className="label">Available Balance</div>
           </div>
           <div className="stat">
-            <div className="val">{orderCount || 0}</div>
+            <div className="val">{paidOrders.length}</div>
             <div className="label">Paid Orders Driven</div>
           </div>
         </div>
 
-        <form action={async (formData) => { 'use server'; await requestPayout(formData); }}>
-          <input type="hidden" name="influencer_id" value={influencer.id} />
-          <input type="hidden" name="amount" value={availableBalance.toString()} />
-          <button 
+        <form action={requestPayout}>
+          <button
             type="submit"
             disabled={availableBalance <= 0}
             className="btn-submit"
@@ -2401,8 +2522,98 @@ export default async function InfluencerDashboard({ searchParams }: { searchPara
           </button>
         </form>
       </div>
-    </main>
-  );
+
+      {/* Orders list */}
+      <div className="admin-card">
+        <h3>Your Orders</h3>
+        {allOrders.length === 0 ? (
+          <p className="empty">No orders yet.</p>
+        ) : (
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Order #</th>
+                <th>Customer</th>
+                <th>Amount</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allOrders.map((o: any) => (
+                <tr key={o.id}>
+                  <td>{new Date(o.created_at).toLocaleDateString()}</td>
+                  <td>{o.order_number}</td>
+                  <td>{o.customer_name}</td>
+                  <td>₹{Number(o.total_amount).toFixed(2)}</td>
+                  <td>{o.payment_status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Day-by-day breakdown */}
+<div className="admin-card">
+  <h3>Orders by Day</h3>
+  {dayStats.length === 0 ? (
+    <p className="empty">No orders yet.</p>
+  ) : (
+    <table className="admin-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Total Orders</th>
+          <th>Paid Orders</th>
+          <th>Revenue</th>
+          <th>Commission</th>
+        </tr>
+      </thead>
+      <tbody>
+        {dayStats.map((d) => (
+          <tr key={d.date}>
+            <td>{new Date(d.date).toLocaleDateString()}</td>
+            <td>{d.orders}</td>
+            <td>{d.paidOrders}</td>
+            <td>₹{d.revenue.toFixed(2)}</td>
+            <td>₹{d.commission.toFixed(2)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )}
+</div>
+      {/* Payout history */}
+      <div className="admin-card">
+        <h3>Payout History</h3>
+        {payouts.length === 0 ? (
+          <p className="empty">No payout requests yet.</p>
+        ) : (
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Amount</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {payouts.map((p: any) => (
+                <tr key={p.id}>
+                  <td>{new Date(p.created_at).toLocaleDateString()}</td>
+                  <td>₹{Number(p.amount).toFixed(2)}</td>
+                  <td>{p.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+
+</main>
+);
 }
 
 
