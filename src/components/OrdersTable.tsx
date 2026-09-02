@@ -48,7 +48,10 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
 
   const filtered = useMemo(() => {
     return orders.filter((o) => {
-      if (o.payment_status !== tab) return false;
+      const matchesTab = tab === 'pending'
+        ? (o.payment_status === 'pending' || o.payment_status === 'failed')
+        : o.payment_status === tab;
+      if (!matchesTab) return false;
       const orderTime = new Date(o.created_at).getTime();
       if (period === 'custom') {
         if (customFrom && orderTime < new Date(customFrom).setHours(0, 0, 0, 0)) return false;

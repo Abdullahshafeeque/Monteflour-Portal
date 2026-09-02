@@ -7,11 +7,36 @@ export default async function DashboardPage() {
   const supabase = supabaseAdmin();
 
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  await supabase
+  const { data: stalePending } = await supabase
     .from('orders')
-    .update({ payment_status: 'failed', fulfillment_status: 'cancelled' })
+    .select('id, phone, created_at')
     .eq('payment_status', 'pending')
     .lt('created_at', oneHourAgo);
+
+  for (const stale of stalePending || []) {
+    const staleTime = new Date(stale.created_at).getTime();
+    const windowStart = new Date(staleTime - 60 * 60 * 1000).toISOString();
+    const windowEnd = new Date(staleTime + 60 * 60 * 1000).toISOString();
+
+    const { data: match } = await supabase
+      .from('orders')
+      .select('id')
+      .eq('phone', stale.phone)
+      .eq('payment_status', 'paid')
+      .gte('created_at', windowStart)
+      .lte('created_at', windowEnd)
+      .limit(1)
+      .maybeSingle();
+
+    if (match) {
+      await supabase.from('orders').delete().eq('id', stale.id);
+    } else {
+      await supabase
+        .from('orders')
+        .update({ payment_status: 'failed', fulfillment_status: 'cancelled' })
+        .eq('id', stale.id);
+    }
+  }
 
   const { data: orders } = await supabase
     .from('orders')
