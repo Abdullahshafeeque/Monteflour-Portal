@@ -10,6 +10,7 @@ const PERIODS = [
   { key: 'quarter', label: 'This Quarter' },
   { key: 'year', label: 'This Year' },
   { key: 'all', label: 'All Time' },
+  { key: 'custom', label: 'Custom Range' },
 ] as const;
 
 function getPeriodStart(key: string): number | null {
@@ -42,15 +43,23 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
   const [tab, setTab] = useState<'paid' | 'pending'>('paid');
   const [period, setPeriod] = useState<(typeof PERIODS)[number]['key']>('all');
   const [page, setPage] = useState(1);
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
 
   const filtered = useMemo(() => {
-    const cutoff = getPeriodStart(period);
     return orders.filter((o) => {
       if (o.payment_status !== tab) return false;
-      if (cutoff && new Date(o.created_at).getTime() < cutoff) return false;
+      const orderTime = new Date(o.created_at).getTime();
+      if (period === 'custom') {
+        if (customFrom && orderTime < new Date(customFrom).setHours(0, 0, 0, 0)) return false;
+        if (customTo && orderTime > new Date(customTo).setHours(23, 59, 59, 999)) return false;
+        return true;
+      }
+      const cutoff = getPeriodStart(period);
+      if (cutoff && orderTime < cutoff) return false;
       return true;
     });
-  }, [orders, tab, period]);
+  }, [orders, tab, period, customFrom, customTo]);
 
   useEffect(() => {
     setPage(1);
@@ -81,6 +90,19 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
           </button>
         ))}
       </div>
+
+      {period === 'custom' && (
+        <div className="custom-range">
+          <div>
+            <label>From</label>
+            <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+          </div>
+          <div>
+            <label>To</label>
+            <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+          </div>
+        </div>
+      )}
 
       {filtered.length === 0 ? (
         <div className="empty">No orders in this period.</div>
