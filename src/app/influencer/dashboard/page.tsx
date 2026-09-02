@@ -56,7 +56,7 @@ export default async function InfluencerDashboard() {
   const paidOrders = allOrders.filter((o: any) => o.payment_status === 'paid');
   const commissionPerOrder = Number(influencer.commission_per_order || 0);
   const totalRevenue = paidOrders.reduce((sum: number, o: any) => sum + Number(o.total_amount || 0), 0);
-  const totalCommissionEarned = paidOrders.length * commissionPerOrder;
+  const totalCommissionEarned = paidOrders.reduce((sum: number, o: any) => sum + Number(o.quantity || 0), 0) * commissionPerOrder;
 
 
   // Day-by-day breakdown
@@ -72,7 +72,7 @@ export default async function InfluencerDashboard() {
     if (o.payment_status === 'paid') {
       stat.paidOrders += 1;
       stat.revenue += Number(o.total_amount || 0);
-      stat.commission += commissionPerOrder;
+      stat.commission += commissionPerOrder * Number(o.quantity || 0);
     }
   }
   const dayStats = Array.from(dayMap.values()).sort((a, b) => (a.date < b.date ? 1 : -1));
@@ -104,12 +104,13 @@ export default async function InfluencerDashboard() {
     const { data: cpns } = await adminClient.from('coupons').select('code').eq('influencer_id', inf.id);
     const codes = cpns?.map(c => c.code) || [];
 
-    const { count } = await adminClient.from('orders')
-      .select('*', { count: 'exact', head: true })
+    const { data: paidOrdersData } = await adminClient.from('orders')
+      .select('quantity')
       .in('coupon_code', codes.length ? codes : ['__none__'])
       .eq('payment_status', 'paid');
 
-    const earned = (count || 0) * Number(inf.commission_per_order || 0);
+    const totalUnits = (paidOrdersData || []).reduce((sum: number, o: any) => sum + Number(o.quantity || 0), 0);
+    const earned = totalUnits * Number(inf.commission_per_order || 0);
     const { data: existingPayouts } = await adminClient.from('payout_requests').select('amount').eq('influencer_id', inf.id);
     const requested = existingPayouts?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
 
