@@ -5,6 +5,14 @@ export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
   const supabase = supabaseAdmin();
+
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  await supabase
+    .from('orders')
+    .update({ payment_status: 'failed', fulfillment_status: 'cancelled' })
+    .eq('payment_status', 'pending')
+    .lt('created_at', oneHourAgo);
+
   const { data: orders } = await supabase
     .from('orders')
     .select('*')
