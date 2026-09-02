@@ -1008,6 +1008,12 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--sky-deep);border
 .mini-btn{padding:.35rem .8rem;font-size:.75rem;border-radius:4px;border:none;cursor:pointer;margin-right:.3rem;}
 .mini-btn.toggle{background:var(--sky-light);color:var(--navy);}
 .mini-btn.delete{background:#fde8e8;color:#c0392b;}
+.status-select{padding:.35rem .6rem;border-radius:6px;border:1px solid var(--border);font-size:.78rem;font-weight:700;cursor:pointer;}
+.status-select.fulfillment-new{background:#f0f0f0;color:#666;}
+.status-select.fulfillment-packed{background:#e6f0fb;color:#2a5ba8;}
+.status-select.fulfillment-shipped{background:#fff3d6;color:#a56c00;}
+.status-select.fulfillment-delivered{background:#dff5e4;color:#2E8B57;}
+.status-select.fulfillment-cancelled{background:#fde8e8;color:#c0392b;}
 
 
 ===== FILE: src\app\layout.tsx =====
@@ -1400,6 +1406,7 @@ export async function POST(req: NextRequest) {
 
 ===== FILE: src\app\admin\dashboard\page.tsx =====
 
+import StatusSelect from '@/components/StatusSelect';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 
 export const dynamic = 'force-dynamic';
@@ -1441,7 +1448,7 @@ export default async function DashboardPage() {
           <thead>
             <tr>
               <th>Order #</th><th>Customer</th><th>Phone</th><th>City / State</th>
-              <th>Qty</th><th>Coupon</th><th>Total</th><th>Status</th><th>Date</th>
+<th>Qty</th><th>Coupon</th><th>Total</th><th>Payment</th><th>Fulfillment</th><th>Date</th>
             </tr>
           </thead>
           <tbody>
@@ -1455,6 +1462,7 @@ export default async function DashboardPage() {
                 <td>{o.coupon_code || '—'}</td>
                 <td>₹{Number(o.total_amount).toFixed(2)}</td>
                 <td><span className={`badge ${o.payment_status}`}>{o.payment_status}</span></td>
+<td><StatusSelect orderId={o.id} currentStatus={o.fulfillment_status || 'new'} /></td>
                 <td>{new Date(o.created_at).toLocaleString('en-IN')}</td>
               </tr>
             ))}
@@ -1907,6 +1915,32 @@ export default async function InfluencerDetailPage({ params }: { params: { id: s
 }
 
 
+===== FILE: src\app\admin\orders\actions.ts =====
+
+'use server';
+import { revalidatePath } from 'next/cache';
+import { supabaseAdmin } from '@/lib/supabaseServer';
+
+const VALID_STATUSES = ['new', 'packed', 'shipped', 'delivered', 'cancelled'];
+
+export async function updateFulfillmentStatus(orderId: number, status: string) {
+  if (!VALID_STATUSES.includes(status)) return { error: 'Invalid status' };
+
+  const supabase = supabaseAdmin();
+  const update: Record<string, any> = { fulfillment_status: status };
+
+  if (status === 'packed') update.packed_at = new Date().toISOString();
+  if (status === 'shipped') update.shipped_at = new Date().toISOString();
+  if (status === 'delivered') update.delivered_at = new Date().toISOString();
+
+  const { error } = await supabase.from('orders').update(update).eq('id', orderId);
+  if (error) return { error: error.message };
+
+  revalidatePath('/admin/dashboard');
+  return { error: null };
+}
+
+
 ===== FILE: src\app\admin\payouts\page.tsx =====
 
 import { supabaseAdmin } from '@/lib/supabaseServer';
@@ -2076,16 +2110,33 @@ export async function POST(req: NextRequest) {
   }
 
   if (couponCode) {
-    const { error: couponError } = await supabase
+    const { error: updateError, count } = await supabase
       .from('coupons')
-      .update({ influencer_id: influencer.id })
+      .update({ influencer_id: influencer.id }, { count: 'exact' })
       .eq('code', couponCode);
 
-    if (couponError) {
+    if (updateError) {
       return NextResponse.json(
-        { message: `Influencer created, but coupon linking failed: ${couponError.message}` },
+        { message: `Influencer created, but coupon linking failed: ${updateError.message}` },
         { status: 207 }
       );
+    }
+
+    if (!count) {
+      const { error: insertError } = await supabase.from('coupons').insert({
+        code: couponCode,
+        discount_type: 'percent',
+        discount_value: 10,
+        influencer_id: influencer.id,
+        active: true,
+      });
+
+      if (insertError) {
+        return NextResponse.json(
+          { message: `Influencer created, but coupon linking failed: ${insertError.message}` },
+          { status: 207 }
+        );
+      }
     }
   }
 
@@ -2944,6 +2995,43 @@ export default function SignOutButton() {
     <button onClick={handleSignOut} className="nav-link-btn">
       Log Out
     </button>
+  );
+}
+
+
+===== FILE: src\components\StatusSelect.tsx =====
+
+'use client';
+import { useState, useTransition } from 'react';
+import { updateFulfillmentStatus } from '@/app/admin/orders/actions';
+
+const STATUSES = ['new', 'packed', 'shipped', 'delivered', 'cancelled'];
+
+export default function StatusSelect({ orderId, currentStatus }: { orderId: number; currentStatus: string }) {
+  const [status, setStatus] = useState(currentStatus);
+  const [isPending, startTransition] = useTransition();
+
+  function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const newStatus = e.target.value;
+    const prev = status;
+    setStatus(newStatus);
+    startTransition(async () => {
+      const result = await updateFulfillmentStatus(orderId, newStatus);
+      if (result.error) setStatus(prev);
+    });
+  }
+
+  return (
+    <select
+      className={`status-select fulfillment-${status}`}
+      value={status}
+      onChange={handleChange}
+      disabled={isPending}
+    >
+      {STATUSES.map((s) => (
+        <option key={s} value={s}>{s}</option>
+      ))}
+    </select>
   );
 }
 

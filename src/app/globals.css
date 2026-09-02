@@ -98,3 +98,28 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--sky-deep);border
 .status-select.fulfillment-shipped{background:#fff3d6;color:#a56c00;}
 .status-select.fulfillment-delivered{background:#dff5e4;color:#2E8B57;}
 .status-select.fulfillment-cancelled{background:#fde8e8;color:#c0392b;}
+
+/* ---------- order detail page ---------- */
+.admin-table a{color:var(--navy);font-weight:700;text-decoration:none;}
+.back-link{display:inline-block;margin-bottom:1rem;color:var(--navy);font-weight:600;text-decoration:none;}
+.order-detail-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;margin-bottom:1.5rem;}
+.order-detail-head h1{font-family:'Bebas Neue',sans-serif;font-size:1.8rem;letter-spacing:.03em;color:var(--navy);}
+.order-detail-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1.2rem;}
+@media(max-width:700px){.order-detail-grid{grid-template-columns:1fr;}}
+.order-detail-grid p{margin-bottom:.4rem;font-size:.9rem;}
+
+/* ---------- printable shipping label ---------- */
+.shipping-label{max-width:480px;margin:2rem auto;background:#fff;border:2px solid var(--navy);border-radius:8px;padding:2rem;font-family:'Barlow',sans-serif;color:var(--navy);}
+.label-header{display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid var(--navy);padding-bottom:.8rem;margin-bottom:1.2rem;}
+.label-brand{font-family:'Bebas Neue',sans-serif;font-size:1.4rem;letter-spacing:.06em;}
+.label-doc-title{font-size:.85rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);}
+.label-section{margin-bottom:1.2rem;}
+.label-caption{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);display:block;margin-bottom:.2rem;}
+.label-name{font-size:1.1rem;font-weight:700;}
+.label-meta{display:grid;grid-template-columns:repeat(2,1fr);gap:.8rem;border-top:1px dashed var(--border);border-bottom:1px dashed var(--border);padding:1rem 0;}
+
+@media print{
+  .admin-nav,.back-link,.order-detail-actions{display:none !important;}
+  body{background:#fff;}
+  .shipping-label{margin:0;border:none;box-shadow:none;}
+}
