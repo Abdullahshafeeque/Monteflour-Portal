@@ -65,14 +65,23 @@ export async function createInfluencer(prevState: any, formData: FormData) {
     commission_per_order: commission
   });
 
-  // 3. Generate their exclusive coupon
-  await supabase.from('coupons').insert({
-    code: couponCode,
-    discount_type: 'percent',
-    discount_value: 10,
-    influencer_id: authData.user.id,
-    active: true,
-  });
+  // 3. Generate their exclusive coupon (skip if no code was entered)
+  if (couponCode && couponCode !== 'NULL') {
+    const { error: couponError } = await supabase.from('coupons').insert({
+      code: couponCode,
+      discount_type: 'percent',
+      discount_value: 10,
+      influencer_id: authData.user.id,
+      active: true,
+    });
+
+    if (couponError) {
+      // Roll back the half-created influencer so retrying with a different code works cleanly
+      await supabase.from('influencers').delete().eq('id', authData.user.id);
+      await supabase.auth.admin.deleteUser(authData.user.id);
+      return { error: `Coupon code "${couponCode}" is already in use. Influencer was not created.`, success: false };
+    }
+  }
 
   revalidatePath('/admin/influencers');
   return { error: null, success: true };
@@ -102,11 +111,16 @@ export async function deleteInfluencer(id: string) {
       .eq('influencer_id', id);
   }
 
+  // Delete their auth login first — only remove the profile row if this actually succeeds,
+  // so a failed deletion doesn't silently leave the email locked with no visible trace.
+  const { error: authDeleteError } = await supabase.auth.admin.deleteUser(id);
+  if (authDeleteError) {
+    console.error('Failed to delete influencer auth user:', authDeleteError.message);
+    return;
+  }
+
   // Delete the influencer profile row.
   await supabase.from('influencers').delete().eq('id', id);
-
-  // Delete their auth login so they can no longer sign in.
-  await supabase.auth.admin.deleteUser(id);
 
   revalidatePath('/admin/influencers');
 }
