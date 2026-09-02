@@ -1,5 +1,4 @@
-import Link from 'next/link';
-import StatusSelect from '@/components/StatusSelect';
+import OrdersTable from '@/components/OrdersTable';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 
 export const dynamic = 'force-dynamic';
@@ -34,34 +33,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {list.length === 0 ? (
-        <div className="empty">No orders yet.</div>
-      ) : (
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Order #</th><th>Customer</th><th>Phone</th><th>City / State</th>
-<th>Qty</th><th>Coupon</th><th>Total</th><th>Payment</th><th>Fulfillment</th><th>Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map((o: any) => (
-              <tr key={o.id}>
-                <td><Link href={`/admin/orders/${o.id}`}>{o.order_number}</Link></td>
-                <td>{o.customer_name}<br /><small style={{ color: '#5A7A94' }}>{o.email}</small></td>
-                <td>{o.phone}</td>
-                <td>{o.city}, {o.state}</td>
-                <td>{o.quantity}</td>
-                <td>{o.coupon_code || '—'}</td>
-                <td>₹{Number(o.total_amount).toFixed(2)}</td>
-                <td><span className={`badge ${o.payment_status}`}>{o.payment_status}</span></td>
-<td><StatusSelect orderId={o.id} currentStatus={o.fulfillment_status || 'new'} /></td>
-                <td>{new Date(o.created_at).toLocaleString('en-IN')}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <OrdersTable orders={list} />
     </main>
   );
 }

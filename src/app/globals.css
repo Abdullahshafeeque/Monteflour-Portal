@@ -123,3 +123,11 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--sky-deep);border
   body{background:#fff;}
   .shipping-label{margin:0;border:none;box-shadow:none;}
 }
+/* ---------- dashboard filters ---------- */
+.filter-tabs{display:flex;gap:.5rem;margin-bottom:1rem;}
+.filter-tab{padding:.5rem 1.2rem;border:1px solid var(--border);background:#fff;border-radius:6px;font-weight:700;font-size:.82rem;cursor:pointer;color:var(--muted);}
+.filter-tab.active{background:var(--navy);color:#fff;border-color:var(--navy);}
+.period-filters{display:flex;gap:.4rem;margin-bottom:1.5rem;flex-wrap:wrap;}
+.period-btn{padding:.4rem .9rem;border:1px solid var(--border);background:#fff;border-radius:20px;font-size:.75rem;font-weight:600;cursor:pointer;color:var(--muted);}
+.period-btn.active{background:var(--sky-deep);color:var(--navy);border-color:var(--sky-deep);}
+.stat.success{border-top-color:#2E8B57;}
