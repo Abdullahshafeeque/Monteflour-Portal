@@ -105,6 +105,7 @@ export async function deleteInfluencer(id: string) {
     await supabase
       .from('payout_requests')
       .update({
+        influencer_id: null,
         influencer_name_snapshot: influencer.name,
         influencer_email_snapshot: influencer.email,
       })
