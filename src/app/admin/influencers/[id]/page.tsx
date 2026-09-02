@@ -42,7 +42,7 @@ export default async function InfluencerDetailPage({ params }: { params: { id: s
 
   const commissionPerOrder = Number(influencer.commission_per_order || 0);
   const totalRevenue = paidOrders.reduce((sum: number, o: any) => sum + Number(o.total_amount || 0), 0);
-  const totalCommissionEarned = paidOrders.length * commissionPerOrder;
+  const totalCommissionEarned = paidOrders.reduce((sum: number, o: any) => sum + Number(o.quantity || 0), 0) * commissionPerOrder;
 
   // Payout history
   const { data: payouts } = await supabase
@@ -69,7 +69,7 @@ export default async function InfluencerDetailPage({ params }: { params: { id: s
     if (o.payment_status === 'paid') {
       stat.paidOrders += 1;
       stat.revenue += Number(o.total_amount || 0);
-      stat.commission += commissionPerOrder;
+      stat.commission += commissionPerOrder * Number(o.quantity || 0);
     }
   }
   const dayStats = Array.from(dayMap.values()).sort((a, b) => (a.date < b.date ? 1 : -1));
