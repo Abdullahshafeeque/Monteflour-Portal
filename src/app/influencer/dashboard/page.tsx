@@ -3,6 +3,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import SignOutButton from '@/components/SignOutButton';
+import InfluencerOrdersTable from '@/components/InfluencerOrdersTable';
 
 export const dynamic = 'force-dynamic';
 
@@ -169,32 +170,7 @@ export default async function InfluencerDashboard() {
       {/* Orders list */}
       <div className="admin-card">
         <h3>Your Orders</h3>
-        {allOrders.length === 0 ? (
-          <p className="empty">No orders yet.</p>
-        ) : (
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Order #</th>
-                <th>Customer</th>
-                <th>Amount</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {allOrders.map((o: any) => (
-                <tr key={o.id}>
-                  <td>{new Date(o.created_at).toLocaleDateString()}</td>
-                  <td>{o.order_number}</td>
-                  <td>{o.customer_name}</td>
-                  <td>₹{Number(o.total_amount).toFixed(2)}</td>
-                  <td>{o.payment_status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <InfluencerOrdersTable orders={allOrders} />
       </div>
 
       {/* Day-by-day breakdown */}
