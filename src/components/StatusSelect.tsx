@@ -11,6 +11,10 @@ export default function StatusSelect({ orderId, currentStatus }: { orderId: numb
   function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const newStatus = e.target.value;
     const prev = status;
+    if (newStatus === 'cancelled' && !window.confirm('Are you sure you want to cancel this order? This cannot be undone from here.')) {
+      e.target.value = prev;
+      return;
+    }
     setStatus(newStatus);
     startTransition(async () => {
       const result = await updateFulfillmentStatus(orderId, newStatus);

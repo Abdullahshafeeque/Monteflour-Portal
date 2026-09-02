@@ -12,7 +12,7 @@ export default async function DashboardPage() {
     .limit(1000);
 
   const list = orders || [];
-  const paid = list.filter((o: any) => o.payment_status === 'paid');
+  const paid = list.filter((o: any) => o.payment_status === 'paid' && o.fulfillment_status !== 'cancelled');
   const revenue = paid.reduce((sum: number, o: any) => sum + Number(o.total_amount), 0);
   const pendingCount = list.filter((o: any) => o.payment_status === 'pending').length;
 
