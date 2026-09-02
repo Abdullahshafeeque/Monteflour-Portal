@@ -112,16 +112,16 @@ export async function deleteInfluencer(id: string) {
       .eq('influencer_id', id);
   }
 
-  // Delete their auth login first — only remove the profile row if this actually succeeds,
-  // so a failed deletion doesn't silently leave the email locked with no visible trace.
+  // Delete the influencer profile row first — it references the auth user, so it has to
+  // go before the auth user can be deleted.
+  await supabase.from('influencers').delete().eq('id', id);
+
+  // Delete their auth login so they can no longer sign in. Log (don't block) if this fails —
+  // the influencer is already removed from your list either way at this point.
   const { error: authDeleteError } = await supabase.auth.admin.deleteUser(id);
   if (authDeleteError) {
     console.error('Failed to delete influencer auth user:', authDeleteError.message);
-    return;
   }
-
-  // Delete the influencer profile row.
-  await supabase.from('influencers').delete().eq('id', id);
 
   revalidatePath('/admin/influencers');
 }
