@@ -1,3 +1,4 @@
+import StatusSelect from '@/components/StatusSelect';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 
 export const dynamic = 'force-dynamic';
@@ -39,7 +40,7 @@ export default async function DashboardPage() {
           <thead>
             <tr>
               <th>Order #</th><th>Customer</th><th>Phone</th><th>City / State</th>
-              <th>Qty</th><th>Coupon</th><th>Total</th><th>Status</th><th>Date</th>
+<th>Qty</th><th>Coupon</th><th>Total</th><th>Payment</th><th>Fulfillment</th><th>Date</th>
             </tr>
           </thead>
           <tbody>
@@ -53,6 +54,7 @@ export default async function DashboardPage() {
                 <td>{o.coupon_code || '—'}</td>
                 <td>₹{Number(o.total_amount).toFixed(2)}</td>
                 <td><span className={`badge ${o.payment_status}`}>{o.payment_status}</span></td>
+<td><StatusSelect orderId={o.id} currentStatus={o.fulfillment_status || 'new'} /></td>
                 <td>{new Date(o.created_at).toLocaleString('en-IN')}</td>
               </tr>
             ))}
