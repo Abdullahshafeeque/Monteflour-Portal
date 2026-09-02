@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import StatusSelect from '@/components/StatusSelect';
+import PrintLabelButton from '@/components/PrintLabelButton';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 
 export const dynamic = 'force-dynamic';
@@ -27,15 +28,8 @@ export default async function OrderDetailPage({ params }: { params: { id: string
 
       <div className="order-detail-head">
         <h1>Order {order.order_number}</h1>
-        <div className="order-detail-actions">
-            <a
-            className="btn-submit"
-            href={`/admin/orders/${order.id}/print`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Print Shipping Label
-          </a>
+                <div className="order-detail-actions">
+          <PrintLabelButton orderId={order.id} currentStatus={order.fulfillment_status || 'new'} />
         </div>
       </div>
 
