@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 
 export async function POST(req: NextRequest) {
@@ -52,16 +52,33 @@ export async function POST(req: NextRequest) {
   }
 
   if (couponCode) {
-    const { error: couponError } = await supabase
+    const { error: updateError, count } = await supabase
       .from('coupons')
-      .update({ influencer_id: influencer.id })
+      .update({ influencer_id: influencer.id }, { count: 'exact' })
       .eq('code', couponCode);
 
-    if (couponError) {
+    if (updateError) {
       return NextResponse.json(
-        { message: `Influencer created, but coupon linking failed: ${couponError.message}` },
+        { message: `Influencer created, but coupon linking failed: ${updateError.message}` },
         { status: 207 }
       );
+    }
+
+    if (!count) {
+      const { error: insertError } = await supabase.from('coupons').insert({
+        code: couponCode,
+        discount_type: 'percent',
+        discount_value: 10,
+        influencer_id: influencer.id,
+        active: true,
+      });
+
+      if (insertError) {
+        return NextResponse.json(
+          { message: `Influencer created, but coupon linking failed: ${insertError.message}` },
+          { status: 207 }
+        );
+      }
     }
   }
 
