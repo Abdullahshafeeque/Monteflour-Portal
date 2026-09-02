@@ -9,7 +9,7 @@ export default async function DashboardPage() {
     .from('orders')
     .select('*')
     .order('created_at', { ascending: false })
-    .limit(200);
+    .limit(1000);
 
   const list = orders || [];
   const paid = list.filter((o: any) => o.payment_status === 'paid');

@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import StatusSelect from '@/components/StatusSelect';
 
@@ -12,9 +12,12 @@ const PERIODS = [
   { key: 'all', label: 'All Time', days: null },
 ] as const;
 
+const PAGE_SIZE = 150;
+
 export default function OrdersTable({ orders }: { orders: any[] }) {
   const [tab, setTab] = useState<'paid' | 'pending'>('paid');
   const [period, setPeriod] = useState<(typeof PERIODS)[number]['key']>('all');
+  const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
     const periodDef = PERIODS.find((p) => p.key === period)!;
@@ -25,6 +28,13 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
       return true;
     });
   }, [orders, tab, period]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [tab, period]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const totalValue = filtered.reduce((sum, o) => sum + Number(o.total_amount), 0);
   const totalUnits = filtered.reduce((sum, o) => sum + Number(o.quantity), 0);
@@ -59,7 +69,7 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((o: any) => (
+            {paginated.map((o: any) => (
               <tr key={o.id}>
                 <td><Link href={`/admin/orders/${o.id}`}>{o.order_number}</Link></td>
                 <td>{o.customer_name}<br /><small style={{ color: '#5A7A94' }}>{o.email}</small></td>
@@ -75,6 +85,14 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
             ))}
           </tbody>
         </table>
+      )}
+
+      {filtered.length > PAGE_SIZE && (
+        <div className="pagination">
+          <button className="period-btn" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>Prev</button>
+          <span className="pagination-info">Page {page} of {pageCount}</span>
+          <button className="period-btn" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={page === pageCount}>Next</button>
+        </div>
       )}
 
       <div className="stats" style={{ marginTop: '1.5rem' }}>
