@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -38,7 +38,11 @@ export default function CreateInfluencerForm() {
         return;
       }
 
-      setMessage({ type: 'success', text: 'Influencer account created.' });
+      if (res.status === 207) {
+        setMessage({ type: 'error', text: data.message || 'Influencer created, but the coupon could not be linked.' });
+      } else {
+        setMessage({ type: 'success', text: 'Influencer account created.' });
+      }
       setName('');
       setEmail('');
       setPassword('');
@@ -52,6 +56,7 @@ export default function CreateInfluencerForm() {
     }
   }
 
+  
   return (
     <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '1rem', marginTop: '1rem' }}>
       <div>
