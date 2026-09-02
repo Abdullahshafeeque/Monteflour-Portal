@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import StatusSelect from '@/components/StatusSelect';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 
@@ -46,7 +47,7 @@ export default async function DashboardPage() {
           <tbody>
             {list.map((o: any) => (
               <tr key={o.id}>
-                <td>{o.order_number}</td>
+                <td><Link href={`/admin/orders/${o.id}`}>{o.order_number}</Link></td>
                 <td>{o.customer_name}<br /><small style={{ color: '#5A7A94' }}>{o.email}</small></td>
                 <td>{o.phone}</td>
                 <td>{o.city}, {o.state}</td>
