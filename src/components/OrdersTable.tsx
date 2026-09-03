@@ -114,7 +114,7 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
           <thead>
             <tr>
               <th>Order #</th><th>Customer</th><th>Phone</th><th>City / State</th>
-              <th>Qty</th><th>Coupon</th><th>Total</th><th>Payment</th><th>Fulfillment</th><th>Date</th>
+              <th>Qty</th><th>Coupon</th><th>Total</th><th>Payment</th><th>Attempts</th><th>Fulfillment</th><th>Date</th>
             </tr>
           </thead>
           <tbody>
@@ -128,6 +128,7 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
                 <td>{o.coupon_code || '—'}</td>
                 <td>₹{Number(o.total_amount).toFixed(2)}</td>
                 <td><span className={`badge ${o.payment_status}`}>{o.payment_status}</span></td>
+                <td>{o.attempt_count && o.attempt_count > 1 ? `${o.attempt_count}x` : '—'}</td>
                 <td><StatusSelect orderId={o.id} currentStatus={o.fulfillment_status || 'new'} /></td>
                 <td>{new Date(o.created_at).toLocaleString('en-IN')}</td>
               </tr>
