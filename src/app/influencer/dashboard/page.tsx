@@ -159,7 +159,7 @@ export default async function InfluencerDashboard() {
           </div>
           <div className="stat">
             <div className="val">{paidOrders.length}</div>
-            <div className="label">Paid Orders Driven</div>
+            <div className="label">Orders Driven</div>
           </div>
         </div>
 
