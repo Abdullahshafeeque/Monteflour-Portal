@@ -1,4 +1,5 @@
 import OrdersTable from '@/components/OrdersTable';
+import AnalyticsSection from '@/components/AnalyticsSection';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 
 export const dynamic = 'force-dynamic';
@@ -100,6 +101,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
+               <AnalyticsSection orders={list} />
       <OrdersTable orders={displayList} />
     </main>
   );
