@@ -134,7 +134,7 @@ export default function CheckoutPage() {
         onLoad={() => setRazorpayReady(true)}
       />
       <div className="topbar">
-        <a href="https://monteflour.com">Monteflour</a>
+        <a href="https://monteflour.com"><img src="/logo.svg" alt="Monteflour" className="topbar-logo" /></a>
         <a href="/track-order" className="topbar-track-link">Track Order</a>
       </div>
       <div className="wrap">

@@ -19,6 +19,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <span className="brand">Monteflour Admin</span>
         <div className="nav-links">
           <Link href="/admin/dashboard">Orders</Link>
+          <Link href="/admin/analytics">Analytics</Link>
           <Link href="/admin/coupons">Coupons</Link>
           <Link href="/admin/influencers">Influencers</Link>
           <Link href="/admin/payouts">Payouts</Link>

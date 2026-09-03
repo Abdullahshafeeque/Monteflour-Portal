@@ -11,6 +11,7 @@ body{font-family:'Barlow',sans-serif;background:var(--off-white);color:var(--tex
 .topbar{background:#C5DDE9;padding:1rem 2rem;display:flex;align-items:center;justify-content:center;position:relative;}
 .topbar-track-link{position:absolute;right:2rem;font-family:'Barlow',sans-serif !important;font-size:.85rem !important;font-weight:600 !important;letter-spacing:0 !important;border-bottom:1px solid var(--navy);}
 .topbar a{font-family:'Bebas Neue',sans-serif;font-size:1.5rem;letter-spacing:.06em;color:var(--navy);text-decoration:none;}
+.topbar-logo{height:32px;width:auto;display:block;}
 .wrap{max-width:1000px;margin:0 auto;padding:2.5rem 1.4rem 5rem;display:grid;grid-template-columns:1fr 1.15fr;gap:2.5rem;align-items:start;}
 @media(max-width:820px){.wrap{grid-template-columns:1fr;}}
 .wrap h1{font-family:'Bebas Neue',sans-serif;font-size:2rem;letter-spacing:.04em;color:var(--navy);margin-bottom:1.2rem;}
