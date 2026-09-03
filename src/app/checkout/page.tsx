@@ -25,6 +25,7 @@ export default function CheckoutPage() {
   });
   const [error, setError] = useState('');
   const [paying, setPaying] = useState(false);
+  const [razorpayReady, setRazorpayReady] = useState(false);
 
   const subtotal = UNIT_PRICE * qty;
   const discount = appliedCoupon ? Math.min(appliedCoupon.discount_amount, subtotal) : 0;
@@ -65,6 +66,12 @@ export default function CheckoutPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+
+    if (!razorpayReady || typeof window.Razorpay === 'undefined') {
+      setError('Payment is still loading — please wait a couple of seconds and try again.');
+      return;
+    }
+
     setPaying(true);
 
     try {
@@ -121,7 +128,11 @@ export default function CheckoutPage() {
 
   return (
     <>
-      <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="beforeInteractive" />
+      <Script
+        src="https://checkout.razorpay.com/v1/checkout.js"
+        strategy="afterInteractive"
+        onLoad={() => setRazorpayReady(true)}
+      />
       <div className="topbar"><a href="https://monteflour.com">Monteflour</a></div>
       <div className="wrap">
         <div>
@@ -201,8 +212,8 @@ export default function CheckoutPage() {
                 <input required maxLength={6} value={form.pincode} onChange={(e) => setForm({ ...form, pincode: e.target.value })} />
               </div>
 
-              <button type="submit" className="pay-btn" disabled={paying}>
-                {paying ? 'Processing...' : 'Pay & Place Order'}
+              <button type="submit" className="pay-btn" disabled={paying || !razorpayReady}>
+                {paying ? 'Processing...' : razorpayReady ? 'Pay & Place Order' : 'Loading payment gateway...'}
               </button>
               <div className="secure-note">🔒 Secure payment powered by Razorpay</div>
             </form>
