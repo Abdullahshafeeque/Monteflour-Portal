@@ -46,6 +46,11 @@ export default async function OrderSuccessPage({
           </>
         )}
         <a className="home-link" href="https://monteflour.com">Return to Monteflour.com</a>
+        {order && (
+          <p style={{ marginTop: '0.8rem' }}>
+            <a className="home-link" href="/track-order">Track This Order</a>
+          </p>
+        )}
       </div>
     </div>
   );

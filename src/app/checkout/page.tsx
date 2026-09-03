@@ -133,7 +133,10 @@ export default function CheckoutPage() {
         strategy="afterInteractive"
         onLoad={() => setRazorpayReady(true)}
       />
-      <div className="topbar"><a href="https://monteflour.com">Monteflour</a></div>
+      <div className="topbar">
+        <a href="https://monteflour.com">Monteflour</a>
+        <a href="/track-order" className="topbar-track-link">Track Order</a>
+      </div>
       <div className="wrap">
         <div>
           <h1>Order Summary</h1>
