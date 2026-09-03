@@ -38,7 +38,6 @@ function getPeriodStart(key: string): number | null {
 }
 
 export default function InfluencerOrdersTable({ orders }: { orders: any[] }) {
-  const [tab, setTab] = useState<'paid' | 'pending'>('paid');
   const [period, setPeriod] = useState<(typeof PERIODS)[number]['key']>('all');
   const [page, setPage] = useState(1);
   const [customFrom, setCustomFrom] = useState('');
@@ -46,7 +45,7 @@ export default function InfluencerOrdersTable({ orders }: { orders: any[] }) {
 
   const filtered = useMemo(() => {
     return orders.filter((o) => {
-      if (o.payment_status !== tab) return false;
+      if (o.payment_status !== 'paid') return false;
       const orderTime = new Date(o.created_at).getTime();
       if (period === 'custom') {
         if (customFrom && orderTime < new Date(customFrom).setHours(0, 0, 0, 0)) return false;
@@ -57,11 +56,11 @@ export default function InfluencerOrdersTable({ orders }: { orders: any[] }) {
       if (cutoff && orderTime < cutoff) return false;
       return true;
     });
-  }, [orders, tab, period, customFrom, customTo]);
+  }, [orders, period, customFrom, customTo]);
 
   useEffect(() => {
     setPage(1);
-  }, [tab, period]);
+  }, [period]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -69,8 +68,7 @@ export default function InfluencerOrdersTable({ orders }: { orders: any[] }) {
   return (
     <>
       <div className="filter-tabs">
-        <button className={`filter-tab ${tab === 'paid' ? 'active' : ''}`} onClick={() => setTab('paid')}>Payment Made</button>
-        <button className={`filter-tab ${tab === 'pending' ? 'active' : ''}`} onClick={() => setTab('pending')}>Payment Pending</button>
+        <button className="filter-tab active">Payment Made</button>
       </div>
 
       <div className="period-filters">
@@ -103,7 +101,7 @@ export default function InfluencerOrdersTable({ orders }: { orders: any[] }) {
               <th>Date</th>
               <th>Order #</th>
               <th>Customer</th>
-              <th>Amount</th>
+              <th>Units</th>
               <th>Status</th>
             </tr>
           </thead>
@@ -113,7 +111,7 @@ export default function InfluencerOrdersTable({ orders }: { orders: any[] }) {
                 <td>{new Date(o.created_at).toLocaleDateString()}</td>
                 <td>{o.order_number}</td>
                 <td>{o.customer_name}</td>
-                <td>₹{Number(o.total_amount).toFixed(2)}</td>
+                <td>{o.quantity}</td>
                 <td>{o.payment_status}</td>
               </tr>
             ))}

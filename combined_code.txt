@@ -1039,6 +1039,18 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--sky-deep);border
   body{background:#fff;}
   .shipping-label{margin:0;border:none;box-shadow:none;}
 }
+/* ---------- dashboard filters ---------- */
+.filter-tabs{display:flex;gap:.5rem;margin-bottom:1rem;}
+.filter-tab{padding:.5rem 1.2rem;border:1px solid var(--border);background:#fff;border-radius:6px;font-weight:700;font-size:.82rem;cursor:pointer;color:var(--muted);}
+.filter-tab.active{background:var(--navy);color:#fff;border-color:var(--navy);}
+.period-filters{display:flex;gap:.4rem;margin-bottom:1.5rem;flex-wrap:wrap;}
+.period-btn{padding:.4rem .9rem;border:1px solid var(--border);background:#fff;border-radius:20px;font-size:.75rem;font-weight:600;cursor:pointer;color:var(--muted);}
+.period-btn.active{background:var(--sky-deep);color:var(--navy);border-color:var(--sky-deep);}
+.stat.success{border-top-color:#2E8B57;}
+.pagination{display:flex;align-items:center;gap:1rem;margin-top:1rem;}
+.pagination-info{font-size:.8rem;color:var(--muted);font-weight:600;}
+.custom-range{display:flex;gap:1.5rem;margin-bottom:1.5rem;flex-wrap:wrap;}
+.custom-range div{max-width:180px;}
 
 
 ===== FILE: src\app\layout.tsx =====
@@ -1431,21 +1443,54 @@ export async function POST(req: NextRequest) {
 
 ===== FILE: src\app\admin\dashboard\page.tsx =====
 
-import StatusSelect from '@/components/StatusSelect';
+import OrdersTable from '@/components/OrdersTable';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 
 export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
   const supabase = supabaseAdmin();
+
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const { data: stalePending } = await supabase
+    .from('orders')
+    .select('id, phone, created_at')
+    .eq('payment_status', 'pending')
+    .lt('created_at', oneHourAgo);
+
+  for (const stale of stalePending || []) {
+    const staleTime = new Date(stale.created_at).getTime();
+    const windowStart = new Date(staleTime - 60 * 60 * 1000).toISOString();
+    const windowEnd = new Date(staleTime + 60 * 60 * 1000).toISOString();
+
+    const { data: match } = await supabase
+      .from('orders')
+      .select('id')
+      .eq('phone', stale.phone)
+      .eq('payment_status', 'paid')
+      .gte('created_at', windowStart)
+      .lte('created_at', windowEnd)
+      .limit(1)
+      .maybeSingle();
+
+    if (match) {
+      await supabase.from('orders').delete().eq('id', stale.id);
+    } else {
+      await supabase
+        .from('orders')
+        .update({ payment_status: 'failed', fulfillment_status: 'cancelled' })
+        .eq('id', stale.id);
+    }
+  }
+
   const { data: orders } = await supabase
     .from('orders')
     .select('*')
     .order('created_at', { ascending: false })
-    .limit(200);
+    .limit(1000);
 
   const list = orders || [];
-  const paid = list.filter((o: any) => o.payment_status === 'paid');
+  const paid = list.filter((o: any) => o.payment_status === 'paid' && o.fulfillment_status !== 'cancelled');
   const revenue = paid.reduce((sum: number, o: any) => sum + Number(o.total_amount), 0);
   const pendingCount = list.filter((o: any) => o.payment_status === 'pending').length;
 
@@ -1466,34 +1511,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {list.length === 0 ? (
-        <div className="empty">No orders yet.</div>
-      ) : (
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Order #</th><th>Customer</th><th>Phone</th><th>City / State</th>
-<th>Qty</th><th>Coupon</th><th>Total</th><th>Payment</th><th>Fulfillment</th><th>Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map((o: any) => (
-              <tr key={o.id}>
-                <td>{o.order_number}</td>
-                <td>{o.customer_name}<br /><small style={{ color: '#5A7A94' }}>{o.email}</small></td>
-                <td>{o.phone}</td>
-                <td>{o.city}, {o.state}</td>
-                <td>{o.quantity}</td>
-                <td>{o.coupon_code || '—'}</td>
-                <td>₹{Number(o.total_amount).toFixed(2)}</td>
-                <td><span className={`badge ${o.payment_status}`}>{o.payment_status}</span></td>
-<td><StatusSelect orderId={o.id} currentStatus={o.fulfillment_status || 'new'} /></td>
-                <td>{new Date(o.created_at).toLocaleString('en-IN')}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <OrdersTable orders={list} />
     </main>
   );
 }
@@ -1970,6 +1988,7 @@ export async function updateFulfillmentStatus(orderId: number, status: string) {
 
 import Link from 'next/link';
 import StatusSelect from '@/components/StatusSelect';
+import PrintLabelButton from '@/components/PrintLabelButton';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 
 export const dynamic = 'force-dynamic';
@@ -1997,15 +2016,8 @@ export default async function OrderDetailPage({ params }: { params: { id: string
 
       <div className="order-detail-head">
         <h1>Order {order.order_number}</h1>
-        <div className="order-detail-actions">
-            <a
-            className="btn-submit"
-            href={`/admin/orders/${order.id}/print`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Print Shipping Label
-          </a>
+                <div className="order-detail-actions">
+          <PrintLabelButton orderId={order.id} currentStatus={order.fulfillment_status || 'new'} />
         </div>
       </div>
 
@@ -2779,6 +2791,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import SignOutButton from '@/components/SignOutButton';
+import InfluencerOrdersTable from '@/components/InfluencerOrdersTable';
 
 export const dynamic = 'force-dynamic';
 
@@ -2945,32 +2958,7 @@ export default async function InfluencerDashboard() {
       {/* Orders list */}
       <div className="admin-card">
         <h3>Your Orders</h3>
-        {allOrders.length === 0 ? (
-          <p className="empty">No orders yet.</p>
-        ) : (
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Order #</th>
-                <th>Customer</th>
-                <th>Amount</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {allOrders.map((o: any) => (
-                <tr key={o.id}>
-                  <td>{new Date(o.created_at).toLocaleDateString()}</td>
-                  <td>{o.order_number}</td>
-                  <td>{o.customer_name}</td>
-                  <td>₹{Number(o.total_amount).toFixed(2)}</td>
-                  <td>{o.payment_status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <InfluencerOrdersTable orders={allOrders} />
       </div>
 
       {/* Day-by-day breakdown */}
@@ -3139,6 +3127,344 @@ export default async function OrderSuccessPage({
 }
 
 
+===== FILE: src\components\InfluencerOrdersTable.tsx =====
+
+'use client';
+import { useEffect, useMemo, useState } from 'react';
+
+const PERIODS = [
+  { key: 'day', label: 'Today' },
+  { key: 'week', label: 'This Week' },
+  { key: 'month', label: 'This Month' },
+  { key: 'quarter', label: 'This Quarter' },
+  { key: 'year', label: 'This Year' },
+  { key: 'all', label: 'All Time' },
+  { key: 'custom', label: 'Custom Range' },
+] as const;
+
+const PAGE_SIZE = 100;
+
+function getPeriodStart(key: string): number | null {
+  const now = new Date();
+  if (key === 'day') {
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  }
+  if (key === 'week') {
+    const day = now.getDay();
+    const diffToMonday = day === 0 ? 6 : day - 1;
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday);
+    return monday.getTime();
+  }
+  if (key === 'month') {
+    return new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  }
+  if (key === 'quarter') {
+    const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+    return new Date(now.getFullYear(), quarterStartMonth, 1).getTime();
+  }
+  if (key === 'year') {
+    return new Date(now.getFullYear(), 0, 1).getTime();
+  }
+  return null;
+}
+
+export default function InfluencerOrdersTable({ orders }: { orders: any[] }) {
+  const [tab, setTab] = useState<'paid' | 'pending'>('paid');
+  const [period, setPeriod] = useState<(typeof PERIODS)[number]['key']>('all');
+  const [page, setPage] = useState(1);
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+
+  const filtered = useMemo(() => {
+    return orders.filter((o) => {
+      if (o.payment_status !== tab) return false;
+      const orderTime = new Date(o.created_at).getTime();
+      if (period === 'custom') {
+        if (customFrom && orderTime < new Date(customFrom).setHours(0, 0, 0, 0)) return false;
+        if (customTo && orderTime > new Date(customTo).setHours(23, 59, 59, 999)) return false;
+        return true;
+      }
+      const cutoff = getPeriodStart(period);
+      if (cutoff && orderTime < cutoff) return false;
+      return true;
+    });
+  }, [orders, tab, period, customFrom, customTo]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [tab, period]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  return (
+    <>
+      <div className="filter-tabs">
+        <button className={`filter-tab ${tab === 'paid' ? 'active' : ''}`} onClick={() => setTab('paid')}>Payment Made</button>
+        <button className={`filter-tab ${tab === 'pending' ? 'active' : ''}`} onClick={() => setTab('pending')}>Payment Pending</button>
+      </div>
+
+      <div className="period-filters">
+        {PERIODS.map((p) => (
+          <button key={p.key} className={`period-btn ${period === p.key ? 'active' : ''}`} onClick={() => setPeriod(p.key)}>
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {period === 'custom' && (
+        <div className="custom-range">
+          <div>
+            <label>From</label>
+            <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+          </div>
+          <div>
+            <label>To</label>
+            <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+          </div>
+        </div>
+      )}
+
+      {filtered.length === 0 ? (
+        <p className="empty">No orders in this period.</p>
+      ) : (
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Order #</th>
+              <th>Customer</th>
+              <th>Amount</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paginated.map((o: any) => (
+              <tr key={o.id}>
+                <td>{new Date(o.created_at).toLocaleDateString()}</td>
+                <td>{o.order_number}</td>
+                <td>{o.customer_name}</td>
+                <td>₹{Number(o.total_amount).toFixed(2)}</td>
+                <td>{o.payment_status}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {filtered.length > PAGE_SIZE && (
+        <div className="pagination">
+          <button className="period-btn" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>Prev</button>
+          <span className="pagination-info">Page {page} of {pageCount}</span>
+          <button className="period-btn" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={page === pageCount}>Next</button>
+        </div>
+      )}
+    </>
+  );
+}
+
+
+===== FILE: src\components\OrdersTable.tsx =====
+
+'use client';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import StatusSelect from '@/components/StatusSelect';
+
+const PERIODS = [
+  { key: 'day', label: 'Today' },
+  { key: 'week', label: 'This Week' },
+  { key: 'month', label: 'This Month' },
+  { key: 'quarter', label: 'This Quarter' },
+  { key: 'year', label: 'This Year' },
+  { key: 'all', label: 'All Time' },
+  { key: 'custom', label: 'Custom Range' },
+] as const;
+
+function getPeriodStart(key: string): number | null {
+  const now = new Date();
+  if (key === 'day') {
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  }
+  if (key === 'week') {
+    const day = now.getDay();
+    const diffToMonday = day === 0 ? 6 : day - 1;
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday);
+    return monday.getTime();
+  }
+  if (key === 'month') {
+    return new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  }
+  if (key === 'quarter') {
+    const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+    return new Date(now.getFullYear(), quarterStartMonth, 1).getTime();
+  }
+  if (key === 'year') {
+    return new Date(now.getFullYear(), 0, 1).getTime();
+  }
+  return null;
+}
+
+const PAGE_SIZE = 150;
+
+export default function OrdersTable({ orders }: { orders: any[] }) {
+  const [tab, setTab] = useState<'paid' | 'pending'>('paid');
+  const [period, setPeriod] = useState<(typeof PERIODS)[number]['key']>('all');
+  const [page, setPage] = useState(1);
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+
+  const filtered = useMemo(() => {
+    return orders.filter((o) => {
+      const matchesTab = tab === 'pending'
+        ? (o.payment_status === 'pending' || o.payment_status === 'failed')
+        : o.payment_status === tab;
+      if (!matchesTab) return false;
+      const orderTime = new Date(o.created_at).getTime();
+      if (period === 'custom') {
+        if (customFrom && orderTime < new Date(customFrom).setHours(0, 0, 0, 0)) return false;
+        if (customTo && orderTime > new Date(customTo).setHours(23, 59, 59, 999)) return false;
+        return true;
+      }
+      const cutoff = getPeriodStart(period);
+      if (cutoff && orderTime < cutoff) return false;
+      return true;
+    });
+  }, [orders, tab, period, customFrom, customTo]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [tab, period]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const activeOrders = filtered.filter((o) => o.fulfillment_status !== 'cancelled');
+  const totalValue = activeOrders.reduce((sum, o) => sum + Number(o.total_amount), 0);
+  const totalUnits = activeOrders.reduce((sum, o) => sum + Number(o.quantity), 0);
+  const pendingDelivery = filtered.filter(
+    (o) => (o.fulfillment_status || 'new') !== 'delivered' && o.fulfillment_status !== 'cancelled'
+  ).length;
+  const allDelivered = tab === 'paid' && activeOrders.length > 0 && pendingDelivery === 0;
+
+  return (
+    <>
+      <div className="filter-tabs">
+        <button className={`filter-tab ${tab === 'paid' ? 'active' : ''}`} onClick={() => setTab('paid')}>Payment Made</button>
+        <button className={`filter-tab ${tab === 'pending' ? 'active' : ''}`} onClick={() => setTab('pending')}>Payment Pending</button>
+      </div>
+
+      <div className="period-filters">
+        {PERIODS.map((p) => (
+          <button key={p.key} className={`period-btn ${period === p.key ? 'active' : ''}`} onClick={() => setPeriod(p.key)}>
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {period === 'custom' && (
+        <div className="custom-range">
+          <div>
+            <label>From</label>
+            <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+          </div>
+          <div>
+            <label>To</label>
+            <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+          </div>
+        </div>
+      )}
+
+      {filtered.length === 0 ? (
+        <div className="empty">No orders in this period.</div>
+      ) : (
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>Order #</th><th>Customer</th><th>Phone</th><th>City / State</th>
+              <th>Qty</th><th>Coupon</th><th>Total</th><th>Payment</th><th>Fulfillment</th><th>Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paginated.map((o: any) => (
+              <tr key={o.id}>
+                <td><Link href={`/admin/orders/${o.id}`}>{o.order_number}</Link></td>
+                <td>{o.customer_name}<br /><small style={{ color: '#5A7A94' }}>{o.email}</small></td>
+                <td>{o.phone}</td>
+                <td>{o.city}, {o.state}</td>
+                <td>{o.quantity}</td>
+                <td>{o.coupon_code || '—'}</td>
+                <td>₹{Number(o.total_amount).toFixed(2)}</td>
+                <td><span className={`badge ${o.payment_status}`}>{o.payment_status}</span></td>
+                <td><StatusSelect orderId={o.id} currentStatus={o.fulfillment_status || 'new'} /></td>
+                <td>{new Date(o.created_at).toLocaleString('en-IN')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {filtered.length > PAGE_SIZE && (
+        <div className="pagination">
+          <button className="period-btn" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>Prev</button>
+          <span className="pagination-info">Page {page} of {pageCount}</span>
+          <button className="period-btn" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={page === pageCount}>Next</button>
+        </div>
+      )}
+
+      <div className="stats" style={{ marginTop: '1.5rem' }}>
+        <div className="stat">
+          <div className="val">₹{totalValue.toLocaleString('en-IN')}</div>
+          <div className="label">Total Order Value</div>
+        </div>
+        <div className="stat">
+          <div className="val">{totalUnits}</div>
+          <div className="label">Total Units Sold</div>
+        </div>
+        {tab === 'paid' && (
+          <div className="stat">
+            <div className="val">{pendingDelivery}</div>
+            <div className="label">Pending Delivery</div>
+          </div>
+        )}
+        {allDelivered && (
+          <div className="stat success">
+            <div className="val">✓</div>
+            <div className="label">All Orders Delivered</div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+
+===== FILE: src\components\PrintLabelButton.tsx =====
+
+'use client';
+import { useTransition } from 'react';
+import { updateFulfillmentStatus } from '@/app/admin/orders/actions';
+
+export default function PrintLabelButton({ orderId, currentStatus }: { orderId: number; currentStatus: string }) {
+  const [, startTransition] = useTransition();
+
+  function handleClick() {
+    window.open(`/admin/orders/${orderId}/print`, '_blank', 'noopener,noreferrer');
+    if (currentStatus === 'new') {
+      startTransition(() => {
+        updateFulfillmentStatus(orderId, 'packed');
+      });
+    }
+  }
+
+  return (
+    <button className="btn-submit" onClick={handleClick}>
+      Print Shipping Label
+    </button>
+  );
+}
+
+
 ===== FILE: src\components\PrintTrigger.tsx =====
 
 'use client';
@@ -3192,6 +3518,10 @@ export default function StatusSelect({ orderId, currentStatus }: { orderId: numb
   function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const newStatus = e.target.value;
     const prev = status;
+    if (newStatus === 'cancelled' && !window.confirm('Are you sure you want to cancel this order? This cannot be undone from here.')) {
+      e.target.value = prev;
+      return;
+    }
     setStatus(newStatus);
     startTransition(async () => {
       const result = await updateFulfillmentStatus(orderId, newStatus);

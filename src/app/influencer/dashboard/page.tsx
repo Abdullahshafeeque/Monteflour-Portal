@@ -61,22 +61,22 @@ export default async function InfluencerDashboard() {
 
 
   // Day-by-day breakdown
-  const dayMap = new Map<string, { date: string; orders: number; paidOrders: number; revenue: number; commission: number }>();
+  const dayMap = new Map<string, { date: string; orders: number; paidOrders: number; units: number; commission: number }>();
   for (const o of allOrders) {
     const d = new Date(o.created_at);
-    const key = d.toISOString().slice(0, 10);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     if (!dayMap.has(key)) {
-      dayMap.set(key, { date: key, orders: 0, paidOrders: 0, revenue: 0, commission: 0 });
+      dayMap.set(key, { date: key, orders: 0, paidOrders: 0, units: 0, commission: 0 });
     }
     const stat = dayMap.get(key)!;
     stat.orders += 1;
     if (o.payment_status === 'paid') {
       stat.paidOrders += 1;
-      stat.revenue += Number(o.total_amount || 0);
+      stat.units += Number(o.quantity || 0);
       stat.commission += commissionPerOrder * Number(o.quantity || 0);
     }
   }
-  const dayStats = Array.from(dayMap.values()).sort((a, b) => (a.date < b.date ? 1 : -1));
+  const dayStats = Array.from(dayMap.values()).sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 7);
   const { data: payoutsData } = await supabase
     .from('payout_requests')
     .select('*')
@@ -184,8 +184,7 @@ export default async function InfluencerDashboard() {
         <tr>
           <th>Date</th>
           <th>Total Orders</th>
-          <th>Paid Orders</th>
-          <th>Revenue</th>
+          <th>Units Sold</th>
           <th>Commission</th>
         </tr>
       </thead>
@@ -193,9 +192,8 @@ export default async function InfluencerDashboard() {
         {dayStats.map((d) => (
           <tr key={d.date}>
             <td>{new Date(d.date).toLocaleDateString()}</td>
-            <td>{d.orders}</td>
             <td>{d.paidOrders}</td>
-            <td>₹{d.revenue.toFixed(2)}</td>
+            <td>{d.units}</td>
             <td>₹{d.commission.toFixed(2)}</td>
           </tr>
         ))}
