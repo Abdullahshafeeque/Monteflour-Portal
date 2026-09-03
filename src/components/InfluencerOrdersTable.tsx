@@ -99,7 +99,7 @@ export default function InfluencerOrdersTable({ orders }: { orders: any[] }) {
               <th>Order #</th>
               <th>Customer</th>
               <th>Units</th>
-              <th>Status</th>
+              <th>Location</th>
             </tr>
           </thead>
           <tbody>
@@ -109,7 +109,7 @@ export default function InfluencerOrdersTable({ orders }: { orders: any[] }) {
                 <td>{o.order_number}</td>
                 <td>{o.customer_name}</td>
                 <td>{o.quantity}</td>
-                <td>{o.payment_status}</td>
+                <td>{o.city}, {o.state}</td>
               </tr>
             ))}
           </tbody>
