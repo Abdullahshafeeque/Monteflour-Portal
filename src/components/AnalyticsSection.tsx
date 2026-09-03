@@ -1,3 +1,6 @@
+'use client';
+import { useMemo, useState } from 'react';
+
 type Order = {
   id: number;
   order_number: string;
@@ -21,6 +24,40 @@ type Order = {
   shipped_at?: string | null;
   delivered_at?: string | null;
 };
+
+const PERIODS = [
+  { key: 'day', label: 'Today' },
+  { key: 'week', label: 'This Week' },
+  { key: 'month', label: 'This Month' },
+  { key: 'quarter', label: 'This Quarter' },
+  { key: 'year', label: 'This Year' },
+  { key: 'all', label: 'All Time' },
+  { key: 'custom', label: 'Custom Range' },
+] as const;
+
+function getPeriodStart(key: string): number | null {
+  const now = new Date();
+  if (key === 'day') {
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  }
+  if (key === 'week') {
+    const day = now.getDay();
+    const diffToMonday = day === 0 ? 6 : day - 1;
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday);
+    return monday.getTime();
+  }
+  if (key === 'month') {
+    return new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  }
+  if (key === 'quarter') {
+    const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+    return new Date(now.getFullYear(), quarterStartMonth, 1).getTime();
+  }
+  if (key === 'year') {
+    return new Date(now.getFullYear(), 0, 1).getTime();
+  }
+  return null;
+}
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -48,7 +85,25 @@ function normalizePlace(raw: string) {
   return { key, display };
 }
 
-export default function AnalyticsSection({ orders }: { orders: Order[] }) {
+export default function AnalyticsSection({ orders: allOrders }: { orders: Order[] }) {
+  const [period, setPeriod] = useState<(typeof PERIODS)[number]['key']>('all');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+
+  const orders = useMemo(() => {
+    return allOrders.filter((o) => {
+      const orderTime = new Date(o.created_at).getTime();
+      if (period === 'custom') {
+        if (customFrom && orderTime < new Date(customFrom).setHours(0, 0, 0, 0)) return false;
+        if (customTo && orderTime > new Date(customTo).setHours(23, 59, 59, 999)) return false;
+        return true;
+      }
+      const cutoff = getPeriodStart(period);
+      if (cutoff && orderTime < cutoff) return false;
+      return true;
+    });
+  }, [allOrders, period, customFrom, customTo]);
+
   const paid = orders.filter((o) => o.payment_status === 'paid' && o.fulfillment_status !== 'cancelled');
   const failed = orders.filter((o) => o.payment_status === 'failed');
   const pending = orders.filter((o) => o.payment_status === 'pending');
@@ -63,15 +118,18 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
   const dropOffRate = totalAttempts ? (failed.length + pending.length) / totalAttempts : 0;
 
   // ---------- revenue trend, last 14 days (+ 7-day-prior comparison) ----------
-  const today = new Date();
+  // Always computed off allOrders/paid-globally so the 14-day trend chart still
+  // makes sense even when a shorter period (e.g. "Today") is selected above.
+  const todayDate = new Date();
+  const paidAll = allOrders.filter((o) => o.payment_status === 'paid' && o.fulfillment_status !== 'cancelled');
   const last14: { key: string; label: string; revenue: number; orders: number }[] = [];
   for (let i = 13; i >= 0; i--) {
-    const d = new Date(today.getTime() - i * DAY_MS);
+    const d = new Date(todayDate.getTime() - i * DAY_MS);
     const key = toISTDateKey(d.toISOString());
     last14.push({ key, label: `${d.getDate()}/${d.getMonth() + 1}`, revenue: 0, orders: 0 });
   }
   const dayIndex = new Map(last14.map((d, i) => [d.key, i]));
-  for (const o of paid) {
+  for (const o of paidAll) {
     const key = toISTDateKey(o.created_at);
     const idx = dayIndex.get(key);
     if (idx !== undefined) {
@@ -83,6 +141,9 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
   const last7Revenue = last14.slice(7).reduce((s, d) => s + d.revenue, 0);
   const prev7Revenue = last14.slice(0, 7).reduce((s, d) => s + d.revenue, 0);
   const weekOverWeekChange = prev7Revenue ? (last7Revenue - prev7Revenue) / prev7Revenue : null;
+  const ordersLast7 = last14.slice(7).reduce((s, d) => s + d.orders, 0);
+  const ordersPrev7 = last14.slice(0, 7).reduce((s, d) => s + d.orders, 0);
+  const orderMomentum = ordersPrev7 ? (ordersLast7 - ordersPrev7) / ordersPrev7 : null;
 
   // ---------- day-of-week x hour heatmap ----------
   const heat: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
@@ -115,7 +176,6 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
   const topStates = [...byState.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 6);
   const topCities = [...byCity.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 8);
   const maxStateRevenue = Math.max(1, ...topStates.map((v) => v.revenue));
-  // Herfindahl-style concentration: what share of revenue comes from the single top city
   const cityConcentration = revenue ? (topCities[0]?.revenue || 0) / revenue : 0;
 
   // ---------- coupon performance ----------
@@ -150,9 +210,6 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
   const bulkOrders = paid.filter((o) => Number(o.quantity) >= 10);
 
   // ---------- fulfillment funnel + SLA ----------
-  // Note: cancelled is computed from `orders` directly (paid + fulfillment_status
-  // === 'cancelled'), never from the deduped/failed-payment cleanup rows, so
-  // retried failed-payment attempts never inflate this count.
   const stages = ['new', 'packed', 'shipped', 'delivered'];
   const stageCounts = stages.map(
     (s) => paid.filter((o) => (o.fulfillment_status || 'new') === s).length
@@ -213,9 +270,7 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
     }))
     .sort((a, b) => b.spend - a.spend)
     .slice(0, 6);
-  // Customer lifetime value estimate: avg revenue per unique paying customer
   const avgCustomerLifetimeValue = byPhone.size ? revenue / byPhone.size : 0;
-  // Pareto check: share of revenue from top 20% of customers
   const sortedSpends = [...byPhone.values()]
     .map((arr) => arr.reduce((s, o) => s + Number(o.total_amount), 0))
     .sort((a, b) => b - a);
@@ -234,289 +289,311 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
   const cancelledValueLost = cancelled.reduce((s, o) => s + Number(o.total_amount || 0), 0);
 
   // ---------- failure reason breakdown by phone-retry pattern ----------
-  // Of everyone who failed, how many eventually succeeded on a retry vs never came back?
   const failedPhones = new Set(failed.map((o) => o.phone));
   const paidPhones = new Set(paid.map((o) => o.phone));
   const recoveredAfterFail = [...failedPhones].filter((p) => paidPhones.has(p)).length;
   const neverRecovered = failedPhones.size - recoveredAfterFail;
 
-  // ---------- momentum: is this week's order count trending up or down ----------
-  const ordersLast7 = last14.slice(7).reduce((s, d) => s + d.orders, 0);
-  const ordersPrev7 = last14.slice(0, 7).reduce((s, d) => s + d.orders, 0);
-  const orderMomentum = ordersPrev7 ? (ordersLast7 - ordersPrev7) / ordersPrev7 : null;
-
   return (
     <section className="analytics-section">
       <h2 className="analytics-title">Analytics</h2>
 
-      {/* ---- headline KPIs ---- */}
-      <div className="stats">
-        <div className="stat">
-          <div className="val">{money(revenue)}</div>
-          <div className="label">Total Revenue (Paid)</div>
-        </div>
-        <div className="stat">
-          <div className="val">{money(avgOrderValue)}</div>
-          <div className="label">Avg Order Value</div>
-        </div>
-        <div className="stat">
-          <div className="val">{unitsSold}</div>
-          <div className="label">Units Sold (Paid)</div>
-        </div>
-        <div className="stat">
-          <div className="val">{pct(conversionRate)}</div>
-          <div className="label">Checkout Conversion</div>
-        </div>
-        <div className="stat">
-          <div className="val">{pct(dropOffRate)}</div>
-          <div className="label">Drop-off Rate</div>
-        </div>
-        <div className="stat">
-          <div className="val">{pct(repeatRate)}</div>
-          <div className="label">Repeat Customer Rate</div>
-        </div>
-        <div className="stat">
-          <div className="val">{money(avgCustomerLifetimeValue)}</div>
-          <div className="label">Avg Customer LTV</div>
-        </div>
-        <div className="stat">
-          <div className="val">{money(failedValueLost)}</div>
-          <div className="label">Value Lost to Failed Payments</div>
-        </div>
+      <div className="period-filters">
+        {PERIODS.map((p) => (
+          <button key={p.key} className={`period-btn ${period === p.key ? 'active' : ''}`} onClick={() => setPeriod(p.key)}>
+            {p.label}
+          </button>
+        ))}
       </div>
 
-      <div className="analytics-grid">
-        {/* ---- revenue trend ---- */}
-        <div className="admin-card">
-          <h3>Revenue — Last 14 Days</h3>
-          <div className="bar-chart">
-            {last14.map((d) => (
-              <div className="bar-col" key={d.key}>
-                <div className="bar-track">
-                  <div
-                    className="bar-fill"
-                    style={{ height: `${Math.max(3, (d.revenue / maxDayRevenue) * 100)}%` }}
-                    title={`${d.label}: ${money(d.revenue)} (${d.orders} orders)`}
-                  />
-                </div>
-                <div className="bar-label">{d.label}</div>
-              </div>
-            ))}
+      {period === 'custom' && (
+        <div className="custom-range">
+          <div>
+            <label>From</label>
+            <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
           </div>
-          <p className="analytics-note">
-            {weekOverWeekChange !== null ? (
-              <>This week's revenue is {weekOverWeekChange >= 0 ? 'up' : 'down'}{' '}
-                <strong className={weekOverWeekChange >= 0 ? 'trend-up' : 'trend-down'}>
-                  {pct(Math.abs(weekOverWeekChange))}
-                </strong>{' '}
-                vs the prior 7 days.</>
-            ) : 'Not enough history yet to compare week over week.'}
-            {orderMomentum !== null && (
-              <> Order count is {orderMomentum >= 0 ? 'up' : 'down'} {pct(Math.abs(orderMomentum))} over the same window.</>
-            )}
-          </p>
-        </div>
-
-        {/* ---- order size distribution ---- */}
-        <div className="admin-card">
-          <h3>Basket Size Distribution</h3>
-          {qtyRows.map(([q, count]) => (
-            <div className="hbar-row" key={q}>
-              <div className="hbar-label">{q} unit{q === 1 ? '' : 's'}</div>
-              <div className="hbar-track">
-                <div className="hbar-fill" style={{ width: `${(count / maxQtyCount) * 100}%` }} />
-              </div>
-              <div className="hbar-value">{count}</div>
-            </div>
-          ))}
-          <p className="analytics-note">
-            Avg {avgUnitsPerOrder.toFixed(1)} units/order · {money(revenuePerUnit)} revenue per unit.
-            {bulkOrders.length > 0 && <> {bulkOrders.length} order{bulkOrders.length === 1 ? '' : 's'} of 10+ units — worth checking these are genuine retail orders, not test entries.</>}
-          </p>
-        </div>
-
-        {/* ---- fulfillment funnel ---- */}
-        <div className="admin-card">
-          <h3>Fulfillment Funnel</h3>
-          {stages.map((s, i) => (
-            <div className="hbar-row" key={s}>
-              <div className="hbar-label" style={{ textTransform: 'capitalize' }}>{s}</div>
-              <div className="hbar-track">
-                <div
-                  className={`hbar-fill fulfillment-${s}`}
-                  style={{ width: `${paid.length ? (stageCounts[i] / paid.length) * 100 : 0}%` }}
-                />
-              </div>
-              <div className="hbar-value">{stageCounts[i]}</div>
-            </div>
-          ))}
-          <p className="analytics-note">
-            {avgPackHours !== null ? `Avg time to pack: ${avgPackHours.toFixed(1)}h. ` : ''}
-            {avgFulfillmentHours !== null ? `Avg order → delivered: ${avgFulfillmentHours.toFixed(1)}h. ` : ''}
-            Cancelled: {cancelledCount} ({pct(cancellationRate)} of paid+cancelled), worth {money(cancelledValueLost)}.
-            {stuckOrders.length > 0 && <> {stuckOrders.length} paid order{stuckOrders.length === 1 ? '' : 's'} older than 72h still not delivered — may need a follow-up.</>}
-          </p>
-        </div>
-
-        {/* ---- customer segments ---- */}
-        <div className="admin-card">
-          <h3>Customer Segments (RFM-lite)</h3>
-          <div className="segment-grid">
-            <div className="segment-pill champions">Champions<span>{champions}</span></div>
-            <div className="segment-pill loyal">Loyal<span>{loyal}</span></div>
-            <div className="segment-pill new">New<span>{newCustomers}</span></div>
-            <div className="segment-pill at-risk">At Risk<span>{atRisk}</span></div>
-            <div className="segment-pill lost">Lost<span>{lost}</span></div>
-            <div className="segment-pill one-time">One-time<span>{oneTimeCustomers}</span></div>
+          <div>
+            <label>To</label>
+            <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
           </div>
-          <p className="analytics-note">
-            Top 20% of customers ({top20Count}) drive {pct(top20Share)} of total revenue.
-          </p>
         </div>
+      )}
 
-        {/* ---- top spenders ---- */}
-        <div className="admin-card">
-          <h3>Top Spenders</h3>
-          <table className="admin-table">
-            <thead>
-              <tr><th>Customer</th><th>Orders</th><th>Total Spend</th></tr>
-            </thead>
-            <tbody>
-              {topSpenders.map((c) => (
-                <tr key={c.phone}>
-                  <td>{c.name}</td>
-                  <td>{c.orders}</td>
-                  <td>{money(c.spend)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* ---- geography: states ---- */}
-        <div className="admin-card">
-          <h3>Revenue by State</h3>
-          {topStates.map((v) => (
-            <div className="hbar-row" key={v.display}>
-              <div className="hbar-label">{v.display}</div>
-              <div className="hbar-track">
-                <div className="hbar-fill" style={{ width: `${(v.revenue / maxStateRevenue) * 100}%` }} />
-              </div>
-              <div className="hbar-value">{money(v.revenue)}</div>
+      {paid.length === 0 && failed.length === 0 && pending.length === 0 ? (
+        <div className="empty">No orders in this period.</div>
+      ) : (
+        <>
+          {/* ---- headline KPIs ---- */}
+          <div className="stats">
+            <div className="stat">
+              <div className="val">{money(revenue)}</div>
+              <div className="label">Total Revenue (Paid)</div>
             </div>
-          ))}
-        </div>
-
-        {/* ---- geography: top cities ---- */}
-        <div className="admin-card">
-          <h3>Top Cities</h3>
-          <table className="admin-table">
-            <thead>
-              <tr><th>City</th><th>Orders</th><th>Revenue</th></tr>
-            </thead>
-            <tbody>
-              {topCities.map((v) => (
-                <tr key={v.display}>
-                  <td>{v.display}</td>
-                  <td>{v.orders}</td>
-                  <td>{money(v.revenue)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="analytics-note">Your single biggest city makes up {pct(cityConcentration)} of all revenue.</p>
-        </div>
-
-        {/* ---- pincode concentration ---- */}
-        <div className="admin-card">
-          <h3>Top Delivery Pincodes</h3>
-          <table className="admin-table">
-            <thead>
-              <tr><th>Pincode</th><th>Paid Orders</th></tr>
-            </thead>
-            <tbody>
-              {topPincodes.map(([pin, count]) => (
-                <tr key={pin}>
-                  <td>{pin}</td>
-                  <td>{count}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* ---- coupon performance ---- */}
-        <div className="admin-card">
-          <h3>Coupon Performance</h3>
-          <table className="admin-table">
-            <thead>
-              <tr><th>Code</th><th>Orders</th><th>Revenue</th><th>Discount Given</th></tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><em>No coupon</em></td>
-                <td>{noCouponOrders}</td>
-                <td>{money(noCouponRevenue)}</td>
-                <td>—</td>
-              </tr>
-              {topCoupons.map(([code, v]) => (
-                <tr key={code}>
-                  <td><strong>{code}</strong></td>
-                  <td>{v.orders}</td>
-                  <td>{money(v.revenue)}</td>
-                  <td>{money(v.discount)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="analytics-note">
-            {pct(couponOrderShare)} of paid orders used a coupon. Total discount given: {money(totalDiscountGiven)}
-            {' '}— an effective {pct(effectiveDiscountRate)} off gross sales.
-          </p>
-        </div>
-
-        {/* ---- lost revenue / checkout leakage ---- */}
-        <div className="admin-card">
-          <h3>Checkout Leakage</h3>
-          <p className="analytics-note">
-            {failed.length} failed payment attempt{failed.length === 1 ? '' : 's'} worth {money(failedValueLost)}
-            {' '}never converted. {pending.length} order{pending.length === 1 ? '' : 's'} worth {money(pendingValueAtStake)}
-            {' '}are currently stuck pending. Of {failedPhones.size} customer{failedPhones.size === 1 ? '' : 's'} who had a failed
-            payment, {recoveredAfterFail} came back and paid successfully, {neverRecovered} never did. Recovering even a
-            third of failed attempts here would add roughly {money(failedValueLost / 3)} in revenue.
-          </p>
-        </div>
-
-        {/* ---- day/hour heatmap ---- */}
-        <div className="admin-card heatmap-card">
-          <h3>When Customers Order (IST)</h3>
-          <div className="heatmap">
-            <div className="heatmap-hours">
-              {Array.from({ length: 24 }, (_, h) => (
-                <span key={h}>{h % 3 === 0 ? h : ''}</span>
-              ))}
+            <div className="stat">
+              <div className="val">{money(avgOrderValue)}</div>
+              <div className="label">Avg Order Value</div>
             </div>
-            {heat.map((row, dow) => (
-              <div className="heatmap-row" key={dow}>
-                <div className="heatmap-dow">{dowLabels[dow]}</div>
-                {row.map((count, hour) => (
-                  <div
-                    key={hour}
-                    className="heatmap-cell"
-                    title={`${dowLabels[dow]} ${hour}:00 — ${count} orders`}
-                    style={{ opacity: count ? 0.15 + 0.85 * (count / maxHeat) : 0.05 }}
-                  />
+            <div className="stat">
+              <div className="val">{unitsSold}</div>
+              <div className="label">Units Sold (Paid)</div>
+            </div>
+            <div className="stat">
+              <div className="val">{pct(conversionRate)}</div>
+              <div className="label">Checkout Conversion</div>
+            </div>
+            <div className="stat">
+              <div className="val">{pct(dropOffRate)}</div>
+              <div className="label">Drop-off Rate</div>
+            </div>
+            <div className="stat">
+              <div className="val">{pct(repeatRate)}</div>
+              <div className="label">Repeat Customer Rate</div>
+            </div>
+            <div className="stat">
+              <div className="val">{money(avgCustomerLifetimeValue)}</div>
+              <div className="label">Avg Customer LTV</div>
+            </div>
+            <div className="stat">
+              <div className="val">{money(failedValueLost)}</div>
+              <div className="label">Value Lost to Failed Payments</div>
+            </div>
+          </div>
+
+          <div className="analytics-grid">
+            {/* ---- revenue trend ---- */}
+            <div className="admin-card">
+              <h3>Revenue — Last 14 Days</h3>
+              <div className="bar-chart">
+                {last14.map((d) => (
+                  <div className="bar-col" key={d.key}>
+                    <div className="bar-track">
+                      <div
+                        className="bar-fill"
+                        style={{ height: `${Math.max(3, (d.revenue / maxDayRevenue) * 100)}%` }}
+                        title={`${d.label}: ${money(d.revenue)} (${d.orders} orders)`}
+                      />
+                    </div>
+                    <div className="bar-label">{d.label}</div>
+                  </div>
                 ))}
               </div>
-            ))}
+              <p className="analytics-note">
+                {weekOverWeekChange !== null ? (
+                  <>This week's revenue is {weekOverWeekChange >= 0 ? 'up' : 'down'}{' '}
+                    <strong className={weekOverWeekChange >= 0 ? 'trend-up' : 'trend-down'}>
+                      {pct(Math.abs(weekOverWeekChange))}
+                    </strong>{' '}
+                    vs the prior 7 days.</>
+                ) : 'Not enough history yet to compare week over week.'}
+                {orderMomentum !== null && (
+                  <> Order count is {orderMomentum >= 0 ? 'up' : 'down'} {pct(Math.abs(orderMomentum))} over the same window.</>
+                )}
+                {' '}(This chart always shows the last 14 days, independent of the period filter above.)
+              </p>
+            </div>
+
+            {/* ---- order size distribution ---- */}
+            <div className="admin-card">
+              <h3>Basket Size Distribution</h3>
+              {qtyRows.map(([q, count]) => (
+                <div className="hbar-row" key={q}>
+                  <div className="hbar-label">{q} unit{q === 1 ? '' : 's'}</div>
+                  <div className="hbar-track">
+                    <div className="hbar-fill" style={{ width: `${(count / maxQtyCount) * 100}%` }} />
+                  </div>
+                  <div className="hbar-value">{count}</div>
+                </div>
+              ))}
+              <p className="analytics-note">
+                Avg {avgUnitsPerOrder.toFixed(1)} units/order · {money(revenuePerUnit)} revenue per unit.
+                {bulkOrders.length > 0 && <> {bulkOrders.length} order{bulkOrders.length === 1 ? '' : 's'} of 10+ units — worth checking these are genuine retail orders, not test entries.</>}
+              </p>
+            </div>
+
+            {/* ---- fulfillment funnel ---- */}
+            <div className="admin-card">
+              <h3>Fulfillment Funnel</h3>
+              {stages.map((s, i) => (
+                <div className="hbar-row" key={s}>
+                  <div className="hbar-label" style={{ textTransform: 'capitalize' }}>{s}</div>
+                  <div className="hbar-track">
+                    <div
+                      className={`hbar-fill fulfillment-${s}`}
+                      style={{ width: `${paid.length ? (stageCounts[i] / paid.length) * 100 : 0}%` }}
+                    />
+                  </div>
+                  <div className="hbar-value">{stageCounts[i]}</div>
+                </div>
+              ))}
+              <p className="analytics-note">
+                {avgPackHours !== null ? `Avg time to pack: ${avgPackHours.toFixed(1)}h. ` : ''}
+                {avgFulfillmentHours !== null ? `Avg order → delivered: ${avgFulfillmentHours.toFixed(1)}h. ` : ''}
+                Cancelled: {cancelledCount} ({pct(cancellationRate)} of paid+cancelled), worth {money(cancelledValueLost)}.
+                {stuckOrders.length > 0 && <> {stuckOrders.length} paid order{stuckOrders.length === 1 ? '' : 's'} older than 72h still not delivered — may need a follow-up.</>}
+              </p>
+            </div>
+
+            {/* ---- customer segments ---- */}
+            <div className="admin-card">
+              <h3>Customer Segments (RFM-lite)</h3>
+              <div className="segment-grid">
+                <div className="segment-pill champions">Champions<span>{champions}</span></div>
+                <div className="segment-pill loyal">Loyal<span>{loyal}</span></div>
+                <div className="segment-pill new">New<span>{newCustomers}</span></div>
+                <div className="segment-pill at-risk">At Risk<span>{atRisk}</span></div>
+                <div className="segment-pill lost">Lost<span>{lost}</span></div>
+                <div className="segment-pill one-time">One-time<span>{oneTimeCustomers}</span></div>
+              </div>
+              <p className="analytics-note">
+                Top 20% of customers ({top20Count}) drive {pct(top20Share)} of total revenue.
+              </p>
+            </div>
+
+            {/* ---- top spenders ---- */}
+            <div className="admin-card">
+              <h3>Top Spenders</h3>
+              <table className="admin-table">
+                <thead>
+                  <tr><th>Customer</th><th>Orders</th><th>Total Spend</th></tr>
+                </thead>
+                <tbody>
+                  {topSpenders.map((c) => (
+                    <tr key={c.phone}>
+                      <td>{c.name}</td>
+                      <td>{c.orders}</td>
+                      <td>{money(c.spend)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* ---- geography: states ---- */}
+            <div className="admin-card">
+              <h3>Revenue by State</h3>
+              {topStates.map((v) => (
+                <div className="hbar-row" key={v.display}>
+                  <div className="hbar-label">{v.display}</div>
+                  <div className="hbar-track">
+                    <div className="hbar-fill" style={{ width: `${(v.revenue / maxStateRevenue) * 100}%` }} />
+                  </div>
+                  <div className="hbar-value">{money(v.revenue)}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* ---- geography: top cities ---- */}
+            <div className="admin-card">
+              <h3>Top Cities</h3>
+              <table className="admin-table">
+                <thead>
+                  <tr><th>City</th><th>Orders</th><th>Revenue</th></tr>
+                </thead>
+                <tbody>
+                  {topCities.map((v) => (
+                    <tr key={v.display}>
+                      <td>{v.display}</td>
+                      <td>{v.orders}</td>
+                      <td>{money(v.revenue)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="analytics-note">Your single biggest city makes up {pct(cityConcentration)} of all revenue.</p>
+            </div>
+
+            {/* ---- pincode concentration ---- */}
+            <div className="admin-card">
+              <h3>Top Delivery Pincodes</h3>
+              <table className="admin-table">
+                <thead>
+                  <tr><th>Pincode</th><th>Paid Orders</th></tr>
+                </thead>
+                <tbody>
+                  {topPincodes.map(([pin, count]) => (
+                    <tr key={pin}>
+                      <td>{pin}</td>
+                      <td>{count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* ---- coupon performance ---- */}
+            <div className="admin-card">
+              <h3>Coupon Performance</h3>
+              <table className="admin-table">
+                <thead>
+                  <tr><th>Code</th><th>Orders</th><th>Revenue</th><th>Discount Given</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><em>No coupon</em></td>
+                    <td>{noCouponOrders}</td>
+                    <td>{money(noCouponRevenue)}</td>
+                    <td>—</td>
+                  </tr>
+                  {topCoupons.map(([code, v]) => (
+                    <tr key={code}>
+                      <td><strong>{code}</strong></td>
+                      <td>{v.orders}</td>
+                      <td>{money(v.revenue)}</td>
+                      <td>{money(v.discount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="analytics-note">
+                {pct(couponOrderShare)} of paid orders used a coupon. Total discount given: {money(totalDiscountGiven)}
+                {' '}— an effective {pct(effectiveDiscountRate)} off gross sales.
+              </p>
+            </div>
+
+            {/* ---- lost revenue / checkout leakage ---- */}
+            <div className="admin-card">
+              <h3>Checkout Leakage</h3>
+              <p className="analytics-note">
+                {failed.length} failed payment attempt{failed.length === 1 ? '' : 's'} worth {money(failedValueLost)}
+                {' '}never converted. {pending.length} order{pending.length === 1 ? '' : 's'} worth {money(pendingValueAtStake)}
+                {' '}are currently stuck pending. Of {failedPhones.size} customer{failedPhones.size === 1 ? '' : 's'} who had a failed
+                payment, {recoveredAfterFail} came back and paid successfully, {neverRecovered} never did. Recovering even a
+                third of failed attempts here would add roughly {money(failedValueLost / 3)} in revenue.
+              </p>
+            </div>
+
+            {/* ---- day/hour heatmap ---- */}
+            <div className="admin-card heatmap-card">
+              <h3>When Customers Order (IST)</h3>
+              <div className="heatmap">
+                <div className="heatmap-hours">
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <span key={h}>{h % 3 === 0 ? h : ''}</span>
+                  ))}
+                </div>
+                {heat.map((row, dow) => (
+                  <div className="heatmap-row" key={dow}>
+                    <div className="heatmap-dow">{dowLabels[dow]}</div>
+                    {row.map((count, hour) => (
+                      <div
+                        key={hour}
+                        className="heatmap-cell"
+                        title={`${dowLabels[dow]} ${hour}:00 — ${count} orders`}
+                        style={{ opacity: count ? 0.15 + 0.85 * (count / maxHeat) : 0.05 }}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
+              {peakVal > 0 && (
+                <p className="analytics-note">
+                  Peak ordering window: <strong>{dowLabels[peakDow]} around {peakHour}:00 IST</strong> ({peakVal} orders).
+                </p>
+              )}
+            </div>
           </div>
-          {peakVal > 0 && (
-            <p className="analytics-note">
-              Peak ordering window: <strong>{dowLabels[peakDow]} around {peakHour}:00 IST</strong> ({peakVal} orders).
-            </p>
-          )}
-        </div>
-      </div>
+        </>
+      )}
     </section>
   );
 }
