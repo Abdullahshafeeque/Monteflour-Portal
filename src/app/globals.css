@@ -201,3 +201,11 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--sky-deep);border
 .heatmap-cell{aspect-ratio:1;background:var(--navy);border-radius:2px;}
 .trend-up{color:#2E8B57;}
 .trend-down{color:#c0392b;}
+/* ---------- tracking form ---------- */
+.tracking-form{margin-top:1rem;}
+.tracking-form-row{display:flex;gap:.5rem;flex-wrap:wrap;}
+.tracking-form-row select{flex:0 0 140px;}
+.tracking-form-row input{flex:1;min-width:150px;}
+.tracking-form-row .btn-submit{flex:0 0 auto;}
+.tracking-saved{font-size:.78rem;color:#2E8B57;margin-top:.4rem;}
+.tracking-track-link{display:inline-block;margin-top:.7rem;text-decoration:none;text-align:center;}

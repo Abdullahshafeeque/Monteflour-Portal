@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import StatusSelect from '@/components/StatusSelect';
 import PrintLabelButton from '@/components/PrintLabelButton';
+import TrackingForm from '@/components/TrackingForm';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 
 export const dynamic = 'force-dynamic';
@@ -63,6 +64,7 @@ export default async function OrderDetailPage({ params }: { params: { id: string
           <p>Payment: <span className={`badge ${order.payment_status}`}>{order.payment_status}</span></p>
           <p>Fulfillment: <StatusSelect orderId={order.id} currentStatus={order.fulfillment_status || 'new'} /></p>
           <p>Placed: {new Date(order.created_at).toLocaleString('en-IN')}</p>
+          <TrackingForm orderId={order.id} currentCourier={order.courier} currentTrackingNumber={order.tracking_number} />
         </div>
       </div>
     </main>

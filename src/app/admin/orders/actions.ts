@@ -20,3 +20,15 @@ export async function updateFulfillmentStatus(orderId: number, status: string) {
   revalidatePath('/admin/dashboard');
   return { error: null };
 }
+export async function updateTracking(orderId: number, courier: string, trackingNumber: string) {
+  const supabase = supabaseAdmin();
+  const { error } = await supabase
+    .from('orders')
+    .update({ courier: courier || null, tracking_number: trackingNumber || null })
+    .eq('id', orderId);
+  if (error) return { error: error.message };
+
+  revalidatePath('/admin/dashboard');
+  revalidatePath(`/admin/orders/${orderId}`);
+  return { error: null };
+}
