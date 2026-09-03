@@ -1,7 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabaseServer';
+﻿import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin, supabaseServerClient } from '@/lib/supabaseServer';
+
+const ADMIN_EMAIL = 'abdshafeeque@gmail.com';
 
 export async function POST(req: NextRequest) {
+  // Reject the request immediately unless it's genuinely coming from a
+  // logged-in admin session — this endpoint previously had no auth check at all.
+  const authClient = supabaseServerClient();
+  const { data: { user } } = await authClient.auth.getUser();
+  if (!user || user.email !== ADMIN_EMAIL) {
+    return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 });
+  }
+
   const body = await req.json();
   const name = String(body.name || '').trim();
   const email = String(body.email || '').trim().toLowerCase();
@@ -64,6 +74,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // No existing coupon had this code, so create a new one for this influencer.
     if (!count) {
       const { error: insertError } = await supabase.from('coupons').insert({
         code: couponCode,
