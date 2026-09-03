@@ -16,7 +16,8 @@ body{font-family:'Barlow',sans-serif;background:var(--off-white);color:var(--tex
 .wrap h1{font-family:'Bebas Neue',sans-serif;font-size:2rem;letter-spacing:.04em;color:var(--navy);margin-bottom:1.2rem;}
 .card{background:var(--white);border-radius:10px;padding:1.8rem;box-shadow:0 6px 24px rgba(27,58,92,.07);}
 .product-row{display:flex;gap:1rem;align-items:center;padding-bottom:1.4rem;border-bottom:1px solid var(--border);margin-bottom:1.2rem;}
-.product-thumb{width:64px;height:64px;border-radius:8px;background:linear-gradient(145deg,var(--sky),var(--sky-deep));display:flex;align-items:center;justify-content:center;font-size:1.8rem;flex-shrink:0;}
+.product-thumb{width:64px;height:64px;border-radius:8px;background:linear-gradient(145deg,var(--sky),var(--sky-deep));display:flex;align-items:center;justify-content:center;font-size:1.8rem;flex-shrink:0;overflow:hidden;}
+.product-thumb img{width:100%;height:100%;object-fit:cover;}
 .product-name{font-weight:600;font-size:.95rem;color:var(--navy);}
 .product-sub{font-size:.78rem;color:var(--muted);margin-top:.2rem;}
 .qty-control{display:flex;align-items:center;gap:.7rem;margin-top:.6rem;}

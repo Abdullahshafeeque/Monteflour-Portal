@@ -142,7 +142,9 @@ export default function CheckoutPage() {
           <h1>Order Summary</h1>
           <div className="card">
             <div className="product-row">
-              <div className="product-thumb">🌾</div>
+              <div className="product-thumb">
+                <img src="/product.jpg" alt={PRODUCT_NAME} />
+              </div>
               <div>
                 <div className="product-name">{PRODUCT_NAME}</div>
                 <div className="product-sub">{fmt(UNIT_PRICE)} per box</div>
