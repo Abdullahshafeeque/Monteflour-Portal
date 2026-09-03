@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   // never the full address, email, or exact phone, even though this
   // lookup itself is unauthenticated.
   const columns =
-    'order_number, quantity, total_amount, payment_status, fulfillment_status, city, state, created_at, packed_at, shipped_at, delivered_at';
+    'order_number, quantity, total_amount, payment_status, fulfillment_status, city, state, created_at, packed_at, shipped_at, delivered_at, courier, tracking_number';
 
   let ordersQuery = supabase.from('orders').select(columns);
   ordersQuery = isPhone

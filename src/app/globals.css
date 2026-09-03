@@ -209,3 +209,7 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--sky-deep);border
 .tracking-form-row .btn-submit{flex:0 0 auto;}
 .tracking-saved{font-size:.78rem;color:#2E8B57;margin-top:.4rem;}
 .tracking-track-link{display:inline-block;margin-top:.7rem;text-decoration:none;text-align:center;}
+/* ---------- track order: courier info ---------- */
+.track-courier-info{display:flex;justify-content:space-between;align-items:center;margin-top:1rem;padding-top:.9rem;border-top:1px dashed var(--border);font-size:.82rem;}
+.track-courier-name{font-weight:700;color:var(--navy);}
+.track-courier-awb{color:var(--muted);font-family:monospace;letter-spacing:.02em;}

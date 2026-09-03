@@ -13,6 +13,8 @@ type TrackedOrder = {
   packed_at: string | null;
   shipped_at: string | null;
   delivered_at: string | null;
+  courier: string | null;
+  tracking_number: string | null;
 };
 
 const STEPS = [
@@ -21,6 +23,20 @@ const STEPS = [
   { key: 'shipped', label: 'Shipped' },
   { key: 'delivered', label: 'Delivered' },
 ];
+const COURIER_LABELS: Record<string, string> = {
+  delhivery: 'Delhivery',
+  bluedart: 'Blue Dart',
+  dtdc: 'DTDC',
+  ekart: 'Ekart',
+  xpressbees: 'XpressBees',
+  shadowfax: 'Shadowfax',
+  ecom_express: 'Ecom Express',
+  india_post: 'India Post',
+  fedex: 'FedEx',
+  dhl: 'DHL',
+  amazon_shipping: 'Amazon Shipping',
+  other: 'Courier',
+};
 
 export default function TrackOrderPage() {
   const [query, setQuery] = useState('');
@@ -126,6 +142,13 @@ export default function TrackOrderPage() {
                         <div className="track-step-label">{s.label}</div>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {!isCancelled && o.tracking_number && (
+                  <div className="track-courier-info">
+                    <span className="track-courier-name">{COURIER_LABELS[o.courier || ''] || o.courier || 'Courier'}</span>
+                    <span className="track-courier-awb">AWB: {o.tracking_number}</span>
                   </div>
                 )}
               </div>
