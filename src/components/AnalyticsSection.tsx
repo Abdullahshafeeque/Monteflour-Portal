@@ -38,19 +38,31 @@ function money(n: number) {
 function pct(n: number) {
   return `${(n * 100).toFixed(1)}%`;
 }
+// Normalizes free-text city/state entry so "Kerala" and "kerala" aren't
+// counted as two different places. Trims, lowercases for the grouping key,
+// then title-cases for display.
+function normalizePlace(raw: string) {
+  const cleaned = (raw || '').trim().replace(/\s+/g, ' ');
+  const key = cleaned.toLowerCase();
+  const display = cleaned.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+  return { key, display };
+}
 
 export default function AnalyticsSection({ orders }: { orders: Order[] }) {
   const paid = orders.filter((o) => o.payment_status === 'paid' && o.fulfillment_status !== 'cancelled');
   const failed = orders.filter((o) => o.payment_status === 'failed');
   const pending = orders.filter((o) => o.payment_status === 'pending');
+  const cancelled = orders.filter((o) => o.payment_status === 'paid' && o.fulfillment_status === 'cancelled');
   const totalAttempts = orders.length;
   const revenue = paid.reduce((s, o) => s + Number(o.total_amount), 0);
   const unitsSold = paid.reduce((s, o) => s + Number(o.quantity), 0);
   const avgOrderValue = paid.length ? revenue / paid.length : 0;
+  const avgUnitsPerOrder = paid.length ? unitsSold / paid.length : 0;
+  const revenuePerUnit = unitsSold ? revenue / unitsSold : 0;
   const conversionRate = totalAttempts ? paid.length / totalAttempts : 0;
   const dropOffRate = totalAttempts ? (failed.length + pending.length) / totalAttempts : 0;
 
-  // ---------- revenue trend, last 14 days ----------
+  // ---------- revenue trend, last 14 days (+ 7-day-prior comparison) ----------
   const today = new Date();
   const last14: { key: string; label: string; revenue: number; orders: number }[] = [];
   for (let i = 13; i >= 0; i--) {
@@ -68,6 +80,9 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
     }
   }
   const maxDayRevenue = Math.max(1, ...last14.map((d) => d.revenue));
+  const last7Revenue = last14.slice(7).reduce((s, d) => s + d.revenue, 0);
+  const prev7Revenue = last14.slice(0, 7).reduce((s, d) => s + d.revenue, 0);
+  const weekOverWeekChange = prev7Revenue ? (last7Revenue - prev7Revenue) / prev7Revenue : null;
 
   // ---------- day-of-week x hour heatmap ----------
   const heat: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
@@ -77,25 +92,31 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
   }
   const maxHeat = Math.max(1, ...heat.flat());
   const dowLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  let peakDow = 0, peakHour = 0, peakVal = -1;
+  heat.forEach((row, d) => row.forEach((v, h) => { if (v > peakVal) { peakVal = v; peakDow = d; peakHour = h; } }));
 
-  // ---------- geography ----------
-  const byState = new Map<string, { revenue: number; orders: number }>();
-  const byCity = new Map<string, { revenue: number; orders: number }>();
+  // ---------- geography (normalized) ----------
+  const byState = new Map<string, { display: string; revenue: number; orders: number }>();
+  const byCity = new Map<string, { display: string; revenue: number; orders: number }>();
   for (const o of paid) {
-    const s = byState.get(o.state) || { revenue: 0, orders: 0 };
+    const st = normalizePlace(o.state);
+    const s = byState.get(st.key) || { display: st.display, revenue: 0, orders: 0 };
     s.revenue += Number(o.total_amount);
     s.orders += 1;
-    byState.set(o.state, s);
+    byState.set(st.key, s);
 
-    const cityKey = `${o.city}, ${o.state}`;
-    const c = byCity.get(cityKey) || { revenue: 0, orders: 0 };
+    const ct = normalizePlace(o.city);
+    const cityKey = `${ct.key}|${st.key}`;
+    const c = byCity.get(cityKey) || { display: `${ct.display}, ${st.display}`, revenue: 0, orders: 0 };
     c.revenue += Number(o.total_amount);
     c.orders += 1;
     byCity.set(cityKey, c);
   }
-  const topStates = [...byState.entries()].sort((a, b) => b[1].revenue - a[1].revenue).slice(0, 6);
-  const topCities = [...byCity.entries()].sort((a, b) => b[1].revenue - a[1].revenue).slice(0, 8);
-  const maxStateRevenue = Math.max(1, ...topStates.map(([, v]) => v.revenue));
+  const topStates = [...byState.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 6);
+  const topCities = [...byCity.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 8);
+  const maxStateRevenue = Math.max(1, ...topStates.map((v) => v.revenue));
+  // Herfindahl-style concentration: what share of revenue comes from the single top city
+  const cityConcentration = revenue ? (topCities[0]?.revenue || 0) / revenue : 0;
 
   // ---------- coupon performance ----------
   const byCoupon = new Map<string, { revenue: number; orders: number; discount: number }>();
@@ -115,6 +136,8 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
   }
   const topCoupons = [...byCoupon.entries()].sort((a, b) => b[1].revenue - a[1].revenue).slice(0, 6);
   const totalDiscountGiven = [...byCoupon.values()].reduce((s, c) => s + c.discount, 0);
+  const couponOrderShare = paid.length ? ([...byCoupon.values()].reduce((s, c) => s + c.orders, 0)) / paid.length : 0;
+  const effectiveDiscountRate = revenue + totalDiscountGiven ? totalDiscountGiven / (revenue + totalDiscountGiven) : 0;
 
   // ---------- quantity / basket size distribution ----------
   const qtyBuckets = new Map<number, number>();
@@ -124,13 +147,18 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
   }
   const qtyRows = [...qtyBuckets.entries()].sort((a, b) => a[0] - b[0]).slice(0, 8);
   const maxQtyCount = Math.max(1, ...qtyRows.map(([, c]) => c));
+  const bulkOrders = paid.filter((o) => Number(o.quantity) >= 10);
 
   // ---------- fulfillment funnel + SLA ----------
+  // Note: cancelled is computed from `orders` directly (paid + fulfillment_status
+  // === 'cancelled'), never from the deduped/failed-payment cleanup rows, so
+  // retried failed-payment attempts never inflate this count.
   const stages = ['new', 'packed', 'shipped', 'delivered'];
   const stageCounts = stages.map(
     (s) => paid.filter((o) => (o.fulfillment_status || 'new') === s).length
   );
-  const cancelledCount = orders.filter((o) => o.fulfillment_status === 'cancelled').length;
+  const cancelledCount = cancelled.length;
+  const cancellationRate = paid.length + cancelledCount ? cancelledCount / (paid.length + cancelledCount) : 0;
   const deliveredOrders = paid.filter((o) => o.fulfillment_status === 'delivered' && o.delivered_at);
   const avgFulfillmentHours = deliveredOrders.length
     ? deliveredOrders.reduce((s, o) => {
@@ -147,6 +175,12 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
         return s + (end - start) / (1000 * 60 * 60);
       }, 0) / packedOrders.length
     : null;
+  const stuckOrders = paid.filter((o) => {
+    const status = o.fulfillment_status || 'new';
+    if (status === 'delivered') return false;
+    const ageHours = (Date.now() - new Date(o.created_at).getTime()) / (1000 * 60 * 60);
+    return ageHours > 72;
+  });
 
   // ---------- customer repeat / RFM-lite segmentation ----------
   const byPhone = new Map<string, Order[]>();
@@ -179,6 +213,15 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
     }))
     .sort((a, b) => b.spend - a.spend)
     .slice(0, 6);
+  // Customer lifetime value estimate: avg revenue per unique paying customer
+  const avgCustomerLifetimeValue = byPhone.size ? revenue / byPhone.size : 0;
+  // Pareto check: share of revenue from top 20% of customers
+  const sortedSpends = [...byPhone.values()]
+    .map((arr) => arr.reduce((s, o) => s + Number(o.total_amount), 0))
+    .sort((a, b) => b - a);
+  const top20Count = Math.max(1, Math.ceil(sortedSpends.length * 0.2));
+  const top20Revenue = sortedSpends.slice(0, top20Count).reduce((s, v) => s + v, 0);
+  const top20Share = revenue ? top20Revenue / revenue : 0;
 
   // ---------- pincode concentration (mini logistics insight) ----------
   const byPincode = new Map<string, number>();
@@ -188,6 +231,19 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
   // ---------- failed payment loss estimate ----------
   const failedValueLost = failed.reduce((s, o) => s + Number(o.total_amount || 0), 0);
   const pendingValueAtStake = pending.reduce((s, o) => s + Number(o.total_amount || 0), 0);
+  const cancelledValueLost = cancelled.reduce((s, o) => s + Number(o.total_amount || 0), 0);
+
+  // ---------- failure reason breakdown by phone-retry pattern ----------
+  // Of everyone who failed, how many eventually succeeded on a retry vs never came back?
+  const failedPhones = new Set(failed.map((o) => o.phone));
+  const paidPhones = new Set(paid.map((o) => o.phone));
+  const recoveredAfterFail = [...failedPhones].filter((p) => paidPhones.has(p)).length;
+  const neverRecovered = failedPhones.size - recoveredAfterFail;
+
+  // ---------- momentum: is this week's order count trending up or down ----------
+  const ordersLast7 = last14.slice(7).reduce((s, d) => s + d.orders, 0);
+  const ordersPrev7 = last14.slice(0, 7).reduce((s, d) => s + d.orders, 0);
+  const orderMomentum = ordersPrev7 ? (ordersLast7 - ordersPrev7) / ordersPrev7 : null;
 
   return (
     <section className="analytics-section">
@@ -195,6 +251,10 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
 
       {/* ---- headline KPIs ---- */}
       <div className="stats">
+        <div className="stat">
+          <div className="val">{money(revenue)}</div>
+          <div className="label">Total Revenue (Paid)</div>
+        </div>
         <div className="stat">
           <div className="val">{money(avgOrderValue)}</div>
           <div className="label">Avg Order Value</div>
@@ -214,6 +274,10 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
         <div className="stat">
           <div className="val">{pct(repeatRate)}</div>
           <div className="label">Repeat Customer Rate</div>
+        </div>
+        <div className="stat">
+          <div className="val">{money(avgCustomerLifetimeValue)}</div>
+          <div className="label">Avg Customer LTV</div>
         </div>
         <div className="stat">
           <div className="val">{money(failedValueLost)}</div>
@@ -239,6 +303,18 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
               </div>
             ))}
           </div>
+          <p className="analytics-note">
+            {weekOverWeekChange !== null ? (
+              <>This week's revenue is {weekOverWeekChange >= 0 ? 'up' : 'down'}{' '}
+                <strong className={weekOverWeekChange >= 0 ? 'trend-up' : 'trend-down'}>
+                  {pct(Math.abs(weekOverWeekChange))}
+                </strong>{' '}
+                vs the prior 7 days.</>
+            ) : 'Not enough history yet to compare week over week.'}
+            {orderMomentum !== null && (
+              <> Order count is {orderMomentum >= 0 ? 'up' : 'down'} {pct(Math.abs(orderMomentum))} over the same window.</>
+            )}
+          </p>
         </div>
 
         {/* ---- order size distribution ---- */}
@@ -253,6 +329,10 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
               <div className="hbar-value">{count}</div>
             </div>
           ))}
+          <p className="analytics-note">
+            Avg {avgUnitsPerOrder.toFixed(1)} units/order · {money(revenuePerUnit)} revenue per unit.
+            {bulkOrders.length > 0 && <> {bulkOrders.length} order{bulkOrders.length === 1 ? '' : 's'} of 10+ units — worth checking these are genuine retail orders, not test entries.</>}
+          </p>
         </div>
 
         {/* ---- fulfillment funnel ---- */}
@@ -273,7 +353,8 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
           <p className="analytics-note">
             {avgPackHours !== null ? `Avg time to pack: ${avgPackHours.toFixed(1)}h. ` : ''}
             {avgFulfillmentHours !== null ? `Avg order → delivered: ${avgFulfillmentHours.toFixed(1)}h. ` : ''}
-            Cancelled: {cancelledCount}.
+            Cancelled: {cancelledCount} ({pct(cancellationRate)} of paid+cancelled), worth {money(cancelledValueLost)}.
+            {stuckOrders.length > 0 && <> {stuckOrders.length} paid order{stuckOrders.length === 1 ? '' : 's'} older than 72h still not delivered — may need a follow-up.</>}
           </p>
         </div>
 
@@ -288,6 +369,9 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
             <div className="segment-pill lost">Lost<span>{lost}</span></div>
             <div className="segment-pill one-time">One-time<span>{oneTimeCustomers}</span></div>
           </div>
+          <p className="analytics-note">
+            Top 20% of customers ({top20Count}) drive {pct(top20Share)} of total revenue.
+          </p>
         </div>
 
         {/* ---- top spenders ---- */}
@@ -312,9 +396,9 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
         {/* ---- geography: states ---- */}
         <div className="admin-card">
           <h3>Revenue by State</h3>
-          {topStates.map(([state, v]) => (
-            <div className="hbar-row" key={state}>
-              <div className="hbar-label">{state}</div>
+          {topStates.map((v) => (
+            <div className="hbar-row" key={v.display}>
+              <div className="hbar-label">{v.display}</div>
               <div className="hbar-track">
                 <div className="hbar-fill" style={{ width: `${(v.revenue / maxStateRevenue) * 100}%` }} />
               </div>
@@ -331,15 +415,16 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
               <tr><th>City</th><th>Orders</th><th>Revenue</th></tr>
             </thead>
             <tbody>
-              {topCities.map(([city, v]) => (
-                <tr key={city}>
-                  <td>{city}</td>
+              {topCities.map((v) => (
+                <tr key={v.display}>
+                  <td>{v.display}</td>
                   <td>{v.orders}</td>
                   <td>{money(v.revenue)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <p className="analytics-note">Your single biggest city makes up {pct(cityConcentration)} of all revenue.</p>
         </div>
 
         {/* ---- pincode concentration ---- */}
@@ -384,17 +469,21 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
               ))}
             </tbody>
           </table>
-          <p className="analytics-note">Total discount given across all coupons: {money(totalDiscountGiven)}.</p>
+          <p className="analytics-note">
+            {pct(couponOrderShare)} of paid orders used a coupon. Total discount given: {money(totalDiscountGiven)}
+            {' '}— an effective {pct(effectiveDiscountRate)} off gross sales.
+          </p>
         </div>
 
-        {/* ---- lost revenue ---- */}
+        {/* ---- lost revenue / checkout leakage ---- */}
         <div className="admin-card">
           <h3>Checkout Leakage</h3>
           <p className="analytics-note">
             {failed.length} failed payment attempt{failed.length === 1 ? '' : 's'} worth {money(failedValueLost)}
             {' '}never converted. {pending.length} order{pending.length === 1 ? '' : 's'} worth {money(pendingValueAtStake)}
-            {' '}are currently stuck pending. Recovering even a third of failed attempts here would add roughly{' '}
-            {money(failedValueLost / 3)} in revenue.
+            {' '}are currently stuck pending. Of {failedPhones.size} customer{failedPhones.size === 1 ? '' : 's'} who had a failed
+            payment, {recoveredAfterFail} came back and paid successfully, {neverRecovered} never did. Recovering even a
+            third of failed attempts here would add roughly {money(failedValueLost / 3)} in revenue.
           </p>
         </div>
 
@@ -421,6 +510,11 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
               </div>
             ))}
           </div>
+          {peakVal > 0 && (
+            <p className="analytics-note">
+              Peak ordering window: <strong>{dowLabels[peakDow]} around {peakHour}:00 IST</strong> ({peakVal} orders).
+            </p>
+          )}
         </div>
       </div>
     </section>

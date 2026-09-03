@@ -199,3 +199,5 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--sky-deep);border
 .heatmap-row{display:grid;grid-template-columns:50px repeat(24,1fr);align-items:center;gap:2px;margin-bottom:2px;}
 .heatmap-dow{font-size:.72rem;color:var(--muted);font-weight:600;}
 .heatmap-cell{aspect-ratio:1;background:var(--navy);border-radius:2px;}
+.trend-up{color:#2E8B57;}
+.trend-down{color:#c0392b;}
