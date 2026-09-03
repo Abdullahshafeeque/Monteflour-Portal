@@ -28,7 +28,10 @@ export default function AdminLoginPage() {
   return (
     <div className="login-wrap">
       <div className="login-box">
-        <h2>Monteflour Admin</h2>
+        <div className="login-logo">
+          <img src="/logo.png" alt="Monteflour" />
+        </div>
+        <h2>Monteflour Portal</h2>
         {error && <div className="error">{error}</div>}
         <form onSubmit={handleSubmit}>
           <label>Email</label>
