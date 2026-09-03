@@ -60,23 +60,31 @@ export default async function InfluencerDashboard() {
   const totalCommissionEarned = paidOrders.reduce((sum: number, o: any) => sum + Number(o.quantity || 0), 0) * commissionPerOrder;
 
 
-  // Day-by-day breakdown
-  const dayMap = new Map<string, { date: string; orders: number; paidOrders: number; units: number; commission: number }>();
-  for (const o of allOrders) {
-    const d = new Date(o.created_at);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  // Day-by-day breakdown (last 7 calendar days in IST, including days with zero paid orders)
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  const toISTDateKey = (dateInput: string | number | Date) => {
+    const ist = new Date(new Date(dateInput).getTime() + IST_OFFSET_MS);
+    return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}-${String(ist.getUTCDate()).padStart(2, '0')}`;
+  };
+
+  const dayMap = new Map<string, { date: string; paidOrders: number; units: number; commission: number }>();
+  for (const o of paidOrders) {
+    const key = toISTDateKey(o.created_at);
     if (!dayMap.has(key)) {
-      dayMap.set(key, { date: key, orders: 0, paidOrders: 0, units: 0, commission: 0 });
+      dayMap.set(key, { date: key, paidOrders: 0, units: 0, commission: 0 });
     }
     const stat = dayMap.get(key)!;
-    stat.orders += 1;
-    if (o.payment_status === 'paid') {
-      stat.paidOrders += 1;
-      stat.units += Number(o.quantity || 0);
-      stat.commission += commissionPerOrder * Number(o.quantity || 0);
-    }
+    stat.paidOrders += 1;
+    stat.units += Number(o.quantity || 0);
+    stat.commission += commissionPerOrder * Number(o.quantity || 0);
   }
-  const dayStats = Array.from(dayMap.values()).sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 7);
+
+  const nowIST = new Date(Date.now() + IST_OFFSET_MS);
+  const dayStats = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(nowIST.getTime() - i * 24 * 60 * 60 * 1000);
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    return dayMap.get(key) || { date: key, paidOrders: 0, units: 0, commission: 0 };
+  });
   const { data: payoutsData } = await supabase
     .from('payout_requests')
     .select('*')

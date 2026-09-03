@@ -67,9 +67,6 @@ export default function InfluencerOrdersTable({ orders }: { orders: any[] }) {
 
   return (
     <>
-      <div className="filter-tabs">
-        <button className="filter-tab active">Payment Made</button>
-      </div>
 
       <div className="period-filters">
         {PERIODS.map((p) => (
