@@ -29,7 +29,7 @@ export default function AdminLoginPage() {
     <div className="login-wrap">
       <div className="login-box">
         <div className="login-logo">
-          <img src="/logo.png" alt="Monteflour" />
+          <img src="/logo.svg" alt="Monteflour" />
         </div>
         <h2>Monteflour Portal</h2>
         {error && <div className="error">{error}</div>}
