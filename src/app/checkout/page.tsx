@@ -6,6 +6,15 @@ const UNIT_PRICE = Number(process.env.NEXT_PUBLIC_PRODUCT_PRICE || 0);
 const PRODUCT_NAME = process.env.NEXT_PUBLIC_PRODUCT_NAME || 'Monteflour';
 const SHIPPING_FEE = Number(process.env.NEXT_PUBLIC_SHIPPING_FEE || 0);
 const FREE_SHIPPING_ABOVE = Number(process.env.NEXT_PUBLIC_FREE_SHIPPING_ABOVE || 0);
+const INDIAN_STATES = [
+  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat',
+  'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh',
+  'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab',
+  'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh',
+  'Uttarakhand', 'West Bengal',
+  'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu',
+  'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry',
+];
 
 declare global {
   interface Window {
@@ -209,7 +218,12 @@ export default function CheckoutPage() {
                 </div>
                 <div className="form-group">
                   <label>State</label>
-                  <input required value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} />
+                  <select required value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })}>
+                    <option value="" disabled>Select state</option>
+                    {INDIAN_STATES.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
               <div className="form-group">
