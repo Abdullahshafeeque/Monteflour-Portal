@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Script from 'next/script';
 
 const UNIT_PRICE = Number(process.env.NEXT_PUBLIC_PRODUCT_PRICE || 0);
@@ -36,6 +36,10 @@ export default function CheckoutPage() {
   const [razorpayReady, setRazorpayReady] = useState(false);
   const [shippingRule, setShippingRule] = useState<ShippingRule | null>(null);
 
+  useEffect(() => {
+    fetchShippingRate('');
+  }, []);
+
   const subtotal = UNIT_PRICE * qty;
   const discount = appliedCoupon ? Math.min(appliedCoupon.discount_amount, subtotal) : 0;
   const afterDiscount = subtotal - discount;
@@ -66,9 +70,8 @@ export default function CheckoutPage() {
     }
   }
     async function fetchShippingRate(state: string) {
-    if (!state) { setShippingRule(null); return; }
     try {
-      const res = await fetch('/api/shipping-rate?state=' + encodeURIComponent(state));
+      const res = await fetch('/api/shipping-rate?state=' + encodeURIComponent(state || 'ALL'));
       const data = await res.json();
       setShippingRule({ shipping_fee: data.shipping_fee, free_shipping_above: data.free_shipping_above });
     } catch {
@@ -188,10 +191,10 @@ export default function CheckoutPage() {
             {couponMsg && <div className={`coupon-msg ${couponMsg.ok ? 'ok' : 'err'}`}>{couponMsg.text}</div>}
 
             <div className="totals-row"><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
+            <div className="totals-row"><span>Shipping</span><span>{shipping === 0 ? 'FREE' : fmt(shipping)}</span></div>
             {discount > 0 && (
               <div className="totals-row discount"><span>Discount</span><span>−{fmt(discount)}</span></div>
             )}
-            <div className="totals-row"><span>Shipping</span><span>{shipping === 0 ? 'FREE' : fmt(shipping)}</span></div>
             <div className="totals-row grand"><span>Total</span><span>{fmt(total)}</span></div>
           </div>
         </div>
