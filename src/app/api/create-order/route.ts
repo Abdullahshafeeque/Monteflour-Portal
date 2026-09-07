@@ -66,8 +66,21 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const freeShippingAbove = Number(process.env.NEXT_PUBLIC_FREE_SHIPPING_ABOVE || 0);
-  const shippingFee = Number(process.env.NEXT_PUBLIC_SHIPPING_FEE || 0);
+  const { data: stateRule } = await supabase
+    .from('shipping_rules')
+    .select('*')
+    .eq('state', state)
+    .maybeSingle();
+
+  const { data: defaultRule } = await supabase
+    .from('shipping_rules')
+    .select('*')
+    .eq('state', 'ALL')
+    .maybeSingle();
+
+  const rule = stateRule || defaultRule;
+  const shippingFee = Number(rule?.shipping_fee || 0);
+  const freeShippingAbove = Number(rule?.free_shipping_above || 0);
   const shipping = (freeShippingAbove > 0 && subtotal - discount >= freeShippingAbove) ? 0 : shippingFee;
   const total = Math.round((subtotal - discount + shipping) * 100) / 100;
 

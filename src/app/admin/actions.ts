@@ -125,3 +125,23 @@ export async function deleteInfluencer(id: string) {
 
   revalidatePath('/admin/influencers');
 }
+export async function upsertShippingRule(formData: FormData) {
+  const state = String(formData.get('state') || '').trim();
+  const shipping_fee = Number(formData.get('shipping_fee') || 0);
+  const free_shipping_above = Number(formData.get('free_shipping_above') || 0);
+
+  if (!state) return;
+
+  const supabase = supabaseAdmin();
+  await supabase.from('shipping_rules').upsert(
+    { state, shipping_fee, free_shipping_above },
+    { onConflict: 'state' }
+  );
+  revalidatePath('/admin/shipping');
+}
+
+export async function deleteShippingRule(id: number) {
+  const supabase = supabaseAdmin();
+  await supabase.from('shipping_rules').delete().eq('id', id);
+  revalidatePath('/admin/shipping');
+}

@@ -4,8 +4,7 @@ import Script from 'next/script';
 
 const UNIT_PRICE = Number(process.env.NEXT_PUBLIC_PRODUCT_PRICE || 0);
 const PRODUCT_NAME = process.env.NEXT_PUBLIC_PRODUCT_NAME || 'Monteflour';
-const SHIPPING_FEE = Number(process.env.NEXT_PUBLIC_SHIPPING_FEE || 0);
-const FREE_SHIPPING_ABOVE = Number(process.env.NEXT_PUBLIC_FREE_SHIPPING_ABOVE || 0);
+type ShippingRule = { shipping_fee: number; free_shipping_above: number };
 const INDIAN_STATES = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat',
   'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh',
@@ -35,11 +34,14 @@ export default function CheckoutPage() {
   const [error, setError] = useState('');
   const [paying, setPaying] = useState(false);
   const [razorpayReady, setRazorpayReady] = useState(false);
+  const [shippingRule, setShippingRule] = useState<ShippingRule | null>(null);
 
   const subtotal = UNIT_PRICE * qty;
   const discount = appliedCoupon ? Math.min(appliedCoupon.discount_amount, subtotal) : 0;
   const afterDiscount = subtotal - discount;
-  const shipping = FREE_SHIPPING_ABOVE > 0 && afterDiscount >= FREE_SHIPPING_ABOVE ? 0 : SHIPPING_FEE;
+  const shippingFee = shippingRule?.shipping_fee ?? 0;
+  const freeShippingAbove = shippingRule?.free_shipping_above ?? 0;
+  const shipping = freeShippingAbove > 0 && afterDiscount >= freeShippingAbove ? 0 : shippingFee;
   const total = afterDiscount + shipping;
   const fmt = (n: number) => '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -61,6 +63,16 @@ export default function CheckoutPage() {
       }
     } catch {
       setCouponMsg({ text: 'Could not validate coupon. Try again.', ok: false });
+    }
+  }
+    async function fetchShippingRate(state: string) {
+    if (!state) { setShippingRule(null); return; }
+    try {
+      const res = await fetch('/api/shipping-rate?state=' + encodeURIComponent(state));
+      const data = await res.json();
+      setShippingRule({ shipping_fee: data.shipping_fee, free_shipping_above: data.free_shipping_above });
+    } catch {
+      setShippingRule(null);
     }
   }
 
@@ -218,7 +230,7 @@ export default function CheckoutPage() {
                 </div>
                 <div className="form-group">
                   <label>State</label>
-                  <select required value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })}>
+                  <select required value={form.state} onChange={(e) => { setForm({ ...form, state: e.target.value }); fetchShippingRate(e.target.value); }}>
                     <option value="" disabled>Select state</option>
                     {INDIAN_STATES.map((s) => (
                       <option key={s} value={s}>{s}</option>
