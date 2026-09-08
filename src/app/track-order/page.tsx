@@ -18,11 +18,18 @@ type TrackedOrder = {
 };
 
 const STEPS = [
-  { key: 'new', label: 'Order Placed' },
-  { key: 'packed', label: 'Packed' },
-  { key: 'shipped', label: 'Shipped' },
-  { key: 'delivered', label: 'Delivered' },
+  { key: 'new', label: 'Order Placed', dateKey: 'created_at' as const },
+  { key: 'packed', label: 'Packed', dateKey: 'packed_at' as const },
+  { key: 'shipped', label: 'Shipped', dateKey: 'shipped_at' as const },
+  { key: 'delivered', label: 'Delivered', dateKey: 'delivered_at' as const },
 ];
+
+function fmtStepDate(value: string | null) {
+  if (!value) return '';
+  return new Date(value).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) +
+    ' · ' +
+    new Date(value).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+}
 const COURIER_LABELS: Record<string, string> = {
   delhivery: 'Delhivery',
   bluedart: 'Blue Dart',
@@ -140,6 +147,9 @@ export default function TrackOrderPage() {
                       <div key={s.key} className={`track-step ${i <= stepIdx ? 'done' : ''}`}>
                         <div className="track-step-dot" />
                         <div className="track-step-label">{s.label}</div>
+                        {i <= stepIdx && o[s.dateKey] && (
+                          <div className="track-step-date">{fmtStepDate(o[s.dateKey])}</div>
+                        )}
                       </div>
                     ))}
                   </div>
