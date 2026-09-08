@@ -34,7 +34,7 @@ export default function CheckoutPage() {
   const [error, setError] = useState('');
   const [paying, setPaying] = useState(false);
   const [razorpayReady, setRazorpayReady] = useState(false);
-  const [shippingRule, setShippingRule] = useState<ShippingRule | null>(null);
+  const [shippingRule, setShippingRule] = useState<ShippingRule | null>({ shipping_fee: 90, free_shipping_above: 0 });
 
   useEffect(() => {
     fetchShippingRate('');
