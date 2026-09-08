@@ -190,12 +190,12 @@ export default function CheckoutPage() {
             </div>
             {couponMsg && <div className={`coupon-msg ${couponMsg.ok ? 'ok' : 'err'}`}>{couponMsg.text}</div>}
 
-            <div className="totals-row"><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
-            <div className="totals-row"><span>Shipping</span><span>{shipping === 0 ? 'FREE' : fmt(shipping)}</span></div>
+            <div className="totals-row"><span>Subtotal</span><span key={subtotal} className="price-flash">{fmt(subtotal)}</span></div>
+            <div className="totals-row"><span>Shipping</span><span key={shipping} className="price-flash">{shipping === 0 ? 'FREE' : fmt(shipping)}</span></div>
             {discount > 0 && (
-              <div className="totals-row discount"><span>Discount</span><span>−{fmt(discount)}</span></div>
+              <div className="totals-row discount"><span>Discount</span><span key={discount} className="price-flash">−{fmt(discount)}</span></div>
             )}
-            <div className="totals-row grand"><span>Total</span><span>{fmt(total)}</span></div>
+            <div className="totals-row grand"><span>Total</span><span key={total} className="price-flash">{fmt(total)}</span></div>
           </div>
         </div>
 

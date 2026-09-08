@@ -213,3 +213,16 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--sky-deep);border
 .track-courier-info{display:flex;justify-content:space-between;align-items:center;margin-top:1rem;padding-top:.9rem;border-top:1px dashed var(--border);font-size:.82rem;}
 .track-courier-name{font-weight:700;color:var(--navy);}
 .track-courier-awb{color:var(--muted);font-family:monospace;letter-spacing:.02em;}
+.totals-row span:last-child {
+  transition: color 0.3s ease;
+}
+
+.price-flash {
+  color: #1B3A5C;
+  animation: priceFlash 0.4s ease;
+}
+
+@keyframes priceFlash {
+  0% { opacity: 0.4; transform: translateY(-2px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
