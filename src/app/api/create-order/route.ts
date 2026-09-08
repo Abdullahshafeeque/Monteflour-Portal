@@ -20,6 +20,9 @@ export async function POST(req: NextRequest) {
   const pincode = String(body.pincode || '').trim();
   const quantity = Math.max(1, parseInt(body.quantity) || 1);
   const couponCode = String(body.coupon_code || '').trim().toUpperCase();
+  const utmSource = String(body.utm_source || '').trim().slice(0, 100) || null;
+  const utmMedium = String(body.utm_medium || '').trim().slice(0, 100) || null;
+  const utmCampaign = String(body.utm_campaign || '').trim().slice(0, 100) || null;
 
   if (!name || !phone || !email || !address1 || !city || !state || !pincode) {
     return NextResponse.json({ error: 'Please fill in all required fields.' }, { status: 400 });
@@ -127,6 +130,9 @@ export async function POST(req: NextRequest) {
     subtotal,
     coupon_code: appliedCouponCode,
     discount_amount: discount,
+    utm_source: utmSource,
+    utm_medium: utmMedium,
+    utm_campaign: utmCampaign,
     shipping_fee: shipping,
     total_amount: total,
     razorpay_order_id: rpOrder.id,

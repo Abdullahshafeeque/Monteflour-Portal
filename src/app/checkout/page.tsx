@@ -25,6 +25,7 @@ type CouponState = { code: string; discount_amount: number } | null;
 
 export default function CheckoutPage() {
   const [qty, setQty] = useState(1);
+  const [utm, setUtm] = useState({ utm_source: '', utm_medium: '', utm_campaign: '' });
   const [couponInput, setCouponInput] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<CouponState>(null);
   const [couponMsg, setCouponMsg] = useState<{ text: string; ok: boolean } | null>(null);
@@ -38,6 +39,17 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     fetchShippingRate('');
+    const params = new URLSearchParams(window.location.search);
+    const captured = {
+      utm_source: params.get('utm_source') || '',
+      utm_medium: params.get('utm_medium') || '',
+      utm_campaign: params.get('utm_campaign') || '',
+    };
+    if (captured.utm_source || captured.utm_campaign) {
+      sessionStorage.setItem('mf_utm', JSON.stringify(captured));
+    }
+    const stored = sessionStorage.getItem('mf_utm');
+    if (stored) setUtm(JSON.parse(stored));
   }, []);
 
   const subtotal = UNIT_PRICE * qty;
@@ -102,7 +114,7 @@ export default function CheckoutPage() {
       const res = await fetch('/api/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, quantity: qty, coupon_code: appliedCoupon?.code || '' }),
+        body: JSON.stringify({ ...form, quantity: qty, coupon_code: appliedCoupon?.code || '', ...utm }),
       });
       const data = await res.json();
 

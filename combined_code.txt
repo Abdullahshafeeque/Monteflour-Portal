@@ -926,6 +926,7 @@ body{font-family:'Barlow',sans-serif;background:var(--off-white);color:var(--tex
 /* ---------- checkout page ---------- */
 .topbar{background:#C5DDE9;padding:1rem 2rem;display:flex;align-items:center;justify-content:center;position:relative;}
 .topbar-track-link{position:absolute;right:2rem;font-family:'Barlow',sans-serif !important;font-size:.85rem !important;font-weight:600 !important;letter-spacing:0 !important;border-bottom:1px solid var(--navy);}
+.topbar-back-link{position:absolute;left:2rem;font-family:'Barlow',sans-serif !important;font-size:.85rem !important;font-weight:600 !important;letter-spacing:0 !important;border-bottom:1px solid var(--navy);}
 .topbar a{font-family:'Bebas Neue',sans-serif;font-size:1.5rem;letter-spacing:.06em;color:var(--navy);text-decoration:none;}
 .topbar-logo{height:32px;width:auto;display:block;}
 .wrap{max-width:1000px;margin:0 auto;padding:2.5rem 1.4rem 5rem;display:grid;grid-template-columns:1fr 1.15fr;gap:2.5rem;align-items:start;}
@@ -1072,7 +1073,8 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--sky-deep);border
 .track-step{display:flex;flex-direction:column;align-items:center;flex:1;text-align:center;position:relative;}
 .track-step-dot{width:14px;height:14px;border-radius:50%;background:var(--border);margin-bottom:.4rem;}
 .track-step.done .track-step-dot{background:#2E8B57;}
-.track-step-label{font-size:.72rem;color:var(--muted);}
+.track-step-date{font-size:.65rem;color:var(--muted);margin-top:.15rem;}
+.track-step.done .track-step-date{color:var(--navy);}
 .track-step.done .track-step-label{color:var(--navy);font-weight:600;}
 /* ---------- analytics section ---------- */
 .analytics-section{margin-top:3rem;}
@@ -1129,6 +1131,19 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--sky-deep);border
 .track-courier-info{display:flex;justify-content:space-between;align-items:center;margin-top:1rem;padding-top:.9rem;border-top:1px dashed var(--border);font-size:.82rem;}
 .track-courier-name{font-weight:700;color:var(--navy);}
 .track-courier-awb{color:var(--muted);font-family:monospace;letter-spacing:.02em;}
+.totals-row span:last-child {
+  transition: color 0.3s ease;
+}
+
+.price-flash {
+  color: #1B3A5C;
+  animation: priceFlash 0.4s ease;
+}
+
+@keyframes priceFlash {
+  0% { opacity: 0.4; transform: translateY(-2px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
 
 
 ===== FILE: src\app\layout.tsx =====
@@ -1293,6 +1308,26 @@ export async function deleteInfluencer(id: string) {
 
   revalidatePath('/admin/influencers');
 }
+export async function upsertShippingRule(formData: FormData) {
+  const state = String(formData.get('state') || '').trim();
+  const shipping_fee = Number(formData.get('shipping_fee') || 0);
+  const free_shipping_above = Number(formData.get('free_shipping_above') || 0);
+
+  if (!state) return;
+
+  const supabase = supabaseAdmin();
+  await supabase.from('shipping_rules').upsert(
+    { state, shipping_fee, free_shipping_above },
+    { onConflict: 'state' }
+  );
+  revalidatePath('/admin/shipping');
+}
+
+export async function deleteShippingRule(id: number) {
+  const supabase = supabaseAdmin();
+  await supabase.from('shipping_rules').delete().eq('id', id);
+  revalidatePath('/admin/shipping');
+}
 
 
 ===== FILE: src\app\admin\layout.tsx =====
@@ -1320,6 +1355,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <Link href="/admin/dashboard">Orders</Link>
           <Link href="/admin/analytics">Analytics</Link>
           <Link href="/admin/coupons">Coupons</Link>
+                    <Link href="/admin/shipping">Shipping</Link>
           <Link href="/admin/influencers">Influencers</Link>
           <Link href="/admin/payouts">Payouts</Link>
           <SignOutButton />
@@ -2579,6 +2615,91 @@ export default async function PayoutsPage() {
 }
 
 
+===== FILE: src\app\admin\shipping\page.tsx =====
+
+import { supabaseAdmin } from '@/lib/supabaseServer';
+import { upsertShippingRule, deleteShippingRule } from '../actions';
+
+export const dynamic = 'force-dynamic';
+
+const INDIAN_STATES = [
+  'ALL', 'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat',
+  'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh',
+  'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab',
+  'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh',
+  'Uttarakhand', 'West Bengal',
+  'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu',
+  'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry',
+];
+
+export default async function ShippingPage() {
+  const supabase = supabaseAdmin();
+
+  const { data: rules } = await supabase
+    .from('shipping_rules')
+    .select('*')
+    .order('state', { ascending: true });
+
+  const list = rules || [];
+
+  return (
+    <main className="admin-main">
+      <div className="admin-card">
+        <h3>Add / Update Shipping Rate</h3>
+        <form action={upsertShippingRule} className="coupon-form">
+          <div className="form-row">
+            <div>
+              <label>State ("ALL" = default for every other state)</label>
+              <select name="state" required defaultValue="">
+                <option value="" disabled>Select state</option>
+                {INDIAN_STATES.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label>Shipping Fee (₹)</label>
+              <input type="number" step="0.01" name="shipping_fee" required placeholder="e.g. 40" />
+            </div>
+            <div>
+              <label>Free shipping above (₹) — 0 to disable</label>
+              <input type="number" step="0.01" name="free_shipping_above" defaultValue={0} />
+            </div>
+          </div>
+          <button type="submit" className="btn-submit">Save Rate</button>
+        </form>
+      </div>
+
+      {list.length === 0 ? (
+        <div className="admin-card">No shipping rules yet — add one above.</div>
+      ) : (
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>State</th><th>Shipping Fee</th><th>Free Above</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((r: any) => (
+              <tr key={r.id}>
+                <td><strong>{r.state}</strong></td>
+                <td>₹{Number(r.shipping_fee).toFixed(2)}</td>
+                <td>{Number(r.free_shipping_above) > 0 ? `₹${Number(r.free_shipping_above).toFixed(2)}` : 'Disabled'}</td>
+                <td>
+                  <form action={deleteShippingRule.bind(null, r.id)} style={{ display: 'inline' }}>
+                    <button className="mini-btn delete">Delete</button>
+                  </form>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </main>
+  );
+}
+
+
 ===== FILE: src\app\admin-login\page.tsx =====
 
 'use client';
@@ -2853,8 +2974,21 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const freeShippingAbove = Number(process.env.NEXT_PUBLIC_FREE_SHIPPING_ABOVE || 0);
-  const shippingFee = Number(process.env.NEXT_PUBLIC_SHIPPING_FEE || 0);
+  const { data: stateRule } = await supabase
+    .from('shipping_rules')
+    .select('*')
+    .eq('state', state)
+    .maybeSingle();
+
+  const { data: defaultRule } = await supabase
+    .from('shipping_rules')
+    .select('*')
+    .eq('state', 'ALL')
+    .maybeSingle();
+
+  const rule = stateRule || defaultRule;
+  const shippingFee = Number(rule?.shipping_fee || 0);
+  const freeShippingAbove = Number(rule?.free_shipping_above || 0);
   const shipping = (freeShippingAbove > 0 && subtotal - discount >= freeShippingAbove) ? 0 : shippingFee;
   const total = Math.round((subtotal - discount + shipping) * 100) / 100;
 
@@ -2919,6 +3053,36 @@ export async function POST(req: NextRequest) {
     name,
     email,
     phone,
+  });
+}
+
+
+===== FILE: src\app\api\shipping-rate\route.ts =====
+
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabaseServer';
+
+export async function GET(req: NextRequest) {
+  const state = req.nextUrl.searchParams.get('state') || '';
+  const supabase = supabaseAdmin();
+
+  const { data: stateRule } = await supabase
+    .from('shipping_rules')
+    .select('*')
+    .eq('state', state)
+    .maybeSingle();
+
+  const { data: defaultRule } = await supabase
+    .from('shipping_rules')
+    .select('*')
+    .eq('state', 'ALL')
+    .maybeSingle();
+
+  const rule = stateRule || defaultRule;
+
+  return NextResponse.json({
+    shipping_fee: Number(rule?.shipping_fee || 0),
+    free_shipping_above: Number(rule?.free_shipping_above || 0),
   });
 }
 
@@ -3025,13 +3189,12 @@ export async function POST(req: NextRequest) {
 ===== FILE: src\app\checkout\page.tsx =====
 
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Script from 'next/script';
 
 const UNIT_PRICE = Number(process.env.NEXT_PUBLIC_PRODUCT_PRICE || 0);
 const PRODUCT_NAME = process.env.NEXT_PUBLIC_PRODUCT_NAME || 'Monteflour';
-const SHIPPING_FEE = Number(process.env.NEXT_PUBLIC_SHIPPING_FEE || 0);
-const FREE_SHIPPING_ABOVE = Number(process.env.NEXT_PUBLIC_FREE_SHIPPING_ABOVE || 0);
+type ShippingRule = { shipping_fee: number; free_shipping_above: number };
 const INDIAN_STATES = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat',
   'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh',
@@ -3061,11 +3224,18 @@ export default function CheckoutPage() {
   const [error, setError] = useState('');
   const [paying, setPaying] = useState(false);
   const [razorpayReady, setRazorpayReady] = useState(false);
+  const [shippingRule, setShippingRule] = useState<ShippingRule | null>({ shipping_fee: 90, free_shipping_above: 0 });
+
+  useEffect(() => {
+    fetchShippingRate('');
+  }, []);
 
   const subtotal = UNIT_PRICE * qty;
   const discount = appliedCoupon ? Math.min(appliedCoupon.discount_amount, subtotal) : 0;
   const afterDiscount = subtotal - discount;
-  const shipping = FREE_SHIPPING_ABOVE > 0 && afterDiscount >= FREE_SHIPPING_ABOVE ? 0 : SHIPPING_FEE;
+  const shippingFee = shippingRule?.shipping_fee ?? 0;
+  const freeShippingAbove = shippingRule?.free_shipping_above ?? 0;
+  const shipping = freeShippingAbove > 0 && afterDiscount >= freeShippingAbove ? 0 : shippingFee;
   const total = afterDiscount + shipping;
   const fmt = (n: number) => '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -3087,6 +3257,15 @@ export default function CheckoutPage() {
       }
     } catch {
       setCouponMsg({ text: 'Could not validate coupon. Try again.', ok: false });
+    }
+  }
+    async function fetchShippingRate(state: string) {
+    try {
+      const res = await fetch('/api/shipping-rate?state=' + encodeURIComponent(state || 'ALL'));
+      const data = await res.json();
+      setShippingRule({ shipping_fee: data.shipping_fee, free_shipping_above: data.free_shipping_above });
+    } catch {
+      setShippingRule(null);
     }
   }
 
@@ -3201,12 +3380,12 @@ export default function CheckoutPage() {
             </div>
             {couponMsg && <div className={`coupon-msg ${couponMsg.ok ? 'ok' : 'err'}`}>{couponMsg.text}</div>}
 
-            <div className="totals-row"><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
+            <div className="totals-row"><span>Subtotal</span><span key={subtotal} className="price-flash">{fmt(subtotal)}</span></div>
+            <div className="totals-row"><span>Shipping</span><span key={shipping} className="price-flash">{shipping === 0 ? 'FREE' : fmt(shipping)}</span></div>
             {discount > 0 && (
-              <div className="totals-row discount"><span>Discount</span><span>−{fmt(discount)}</span></div>
+              <div className="totals-row discount"><span>Discount</span><span key={discount} className="price-flash">−{fmt(discount)}</span></div>
             )}
-            <div className="totals-row"><span>Shipping</span><span>{shipping === 0 ? 'FREE' : fmt(shipping)}</span></div>
-            <div className="totals-row grand"><span>Total</span><span>{fmt(total)}</span></div>
+            <div className="totals-row grand"><span>Total</span><span key={total} className="price-flash">{fmt(total)}</span></div>
           </div>
         </div>
 
@@ -3244,7 +3423,7 @@ export default function CheckoutPage() {
                 </div>
                 <div className="form-group">
                   <label>State</label>
-                  <select required value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })}>
+                  <select required value={form.state} onChange={(e) => { setForm({ ...form, state: e.target.value }); fetchShippingRate(e.target.value); }}>
                     <option value="" disabled>Select state</option>
                     {INDIAN_STATES.map((s) => (
                       <option key={s} value={s}>{s}</option>
@@ -3646,11 +3825,18 @@ type TrackedOrder = {
 };
 
 const STEPS = [
-  { key: 'new', label: 'Order Placed' },
-  { key: 'packed', label: 'Packed' },
-  { key: 'shipped', label: 'Shipped' },
-  { key: 'delivered', label: 'Delivered' },
+  { key: 'new', label: 'Order Placed', dateKey: 'created_at' as const },
+  { key: 'packed', label: 'Packed', dateKey: 'packed_at' as const },
+  { key: 'shipped', label: 'Shipped', dateKey: 'shipped_at' as const },
+  { key: 'delivered', label: 'Delivered', dateKey: 'delivered_at' as const },
 ];
+
+function fmtStepDate(value: string | null) {
+  if (!value) return '';
+  return new Date(value).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) +
+    ' · ' +
+    new Date(value).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+}
 const COURIER_LABELS: Record<string, string> = {
   delhivery: 'Delhivery',
   bluedart: 'Blue Dart',
@@ -3706,14 +3892,15 @@ export default function TrackOrderPage() {
   return (
     <>
       <div className="topbar">
-        <a href="https://monteflour.com">Monteflour</a>
+        <a href="/checkout" className="topbar-back-link">← Back</a>
+        <a href="https://monteflour.com"><img src="/logo.svg" alt="Monteflour" className="topbar-logo" /></a>
       </div>
       <div className="track-wrap">
         <h1>Track Your Order</h1>
         <div className="card">
           <form onSubmit={handleSubmit} className="track-form">
             <div className="form-group">
-              <label>Order Number or Phone Number</label>
+              <label>Enter your Order Number or Phone Number</label>
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -3768,6 +3955,9 @@ export default function TrackOrderPage() {
                       <div key={s.key} className={`track-step ${i <= stepIdx ? 'done' : ''}`}>
                         <div className="track-step-dot" />
                         <div className="track-step-label">{s.label}</div>
+                        {i <= stepIdx && o[s.dateKey] && (
+                          <div className="track-step-date">{fmtStepDate(o[s.dateKey])}</div>
+                        )}
                       </div>
                     ))}
                   </div>
