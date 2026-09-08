@@ -85,7 +85,7 @@ export default function TrackOrderPage() {
         <div className="card">
           <form onSubmit={handleSubmit} className="track-form">
             <div className="form-group">
-              <label>Order Number or Phone Number</label>
+              <label>Enter your Order Number or Phone Number</label>
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
