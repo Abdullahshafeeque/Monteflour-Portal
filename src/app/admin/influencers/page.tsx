@@ -2,6 +2,7 @@ import { supabaseAdmin } from '@/lib/supabaseServer';
 import CreateInfluencerForm from './CreateInfluencerForm';
 import Link from 'next/link';
 import DeleteInfluencerButton from './DeleteInfluencerButton';
+import CopyLinkButton from './CopyLinkButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,6 +55,7 @@ export default async function AdminInfluencersPage() {
                     <Link href={`/admin/influencers/${inf.id}`} className="btn-secondary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
                       View Details
                     </Link>
+                    {inf.coupons?.[0]?.code && <CopyLinkButton code={inf.coupons[0].code} />}
                     <DeleteInfluencerButton id={inf.id} name={inf.name} />
                   </td>
                 </tr>
