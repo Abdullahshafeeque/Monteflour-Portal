@@ -1690,6 +1690,35 @@ export default async function DashboardPage() {
 }
 
 
+===== FILE: src\app\admin\influencers\CopyLinkButton.tsx =====
+
+'use client';
+
+import { useState } from 'react';
+
+export default function CopyLinkButton({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+  const link = `https://checkout.monteflour.com/checkout?utm_source=instagram&utm_medium=influencer&utm_campaign=${code}`;
+
+  function handleCopy() {
+    navigator.clipboard.writeText(link);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="btn-secondary"
+      style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}
+    >
+      {copied ? 'Copied!' : 'Copy Link'}
+    </button>
+  );
+}
+
+
 ===== FILE: src\app\admin\influencers\CreateInfluencerForm.tsx =====
 
 'use client';
@@ -2140,6 +2169,7 @@ import { supabaseAdmin } from '@/lib/supabaseServer';
 import CreateInfluencerForm from './CreateInfluencerForm';
 import Link from 'next/link';
 import DeleteInfluencerButton from './DeleteInfluencerButton';
+import CopyLinkButton from './CopyLinkButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -2192,6 +2222,7 @@ export default async function AdminInfluencersPage() {
                     <Link href={`/admin/influencers/${inf.id}`} className="btn-secondary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
                       View Details
                     </Link>
+                    {inf.coupons?.[0]?.code && <CopyLinkButton code={inf.coupons[0].code} />}
                     <DeleteInfluencerButton id={inf.id} name={inf.name} />
                   </td>
                 </tr>
@@ -2928,6 +2959,9 @@ export async function POST(req: NextRequest) {
   const pincode = String(body.pincode || '').trim();
   const quantity = Math.max(1, parseInt(body.quantity) || 1);
   const couponCode = String(body.coupon_code || '').trim().toUpperCase();
+  const utmSource = String(body.utm_source || '').trim().slice(0, 100) || null;
+  const utmMedium = String(body.utm_medium || '').trim().slice(0, 100) || null;
+  const utmCampaign = String(body.utm_campaign || '').trim().slice(0, 100) || null;
 
   if (!name || !phone || !email || !address1 || !city || !state || !pincode) {
     return NextResponse.json({ error: 'Please fill in all required fields.' }, { status: 400 });
@@ -3035,6 +3069,9 @@ export async function POST(req: NextRequest) {
     subtotal,
     coupon_code: appliedCouponCode,
     discount_amount: discount,
+    utm_source: utmSource,
+    utm_medium: utmMedium,
+    utm_campaign: utmCampaign,
     shipping_fee: shipping,
     total_amount: total,
     razorpay_order_id: rpOrder.id,
@@ -3215,6 +3252,7 @@ type CouponState = { code: string; discount_amount: number } | null;
 
 export default function CheckoutPage() {
   const [qty, setQty] = useState(1);
+  const [utm, setUtm] = useState({ utm_source: '', utm_medium: '', utm_campaign: '' });
   const [couponInput, setCouponInput] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<CouponState>(null);
   const [couponMsg, setCouponMsg] = useState<{ text: string; ok: boolean } | null>(null);
@@ -3228,6 +3266,17 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     fetchShippingRate('');
+    const params = new URLSearchParams(window.location.search);
+    const captured = {
+      utm_source: params.get('utm_source') || '',
+      utm_medium: params.get('utm_medium') || '',
+      utm_campaign: params.get('utm_campaign') || '',
+    };
+    if (captured.utm_source || captured.utm_campaign) {
+      sessionStorage.setItem('mf_utm', JSON.stringify(captured));
+    }
+    const stored = sessionStorage.getItem('mf_utm');
+    if (stored) setUtm(JSON.parse(stored));
   }, []);
 
   const subtotal = UNIT_PRICE * qty;
@@ -3292,7 +3341,7 @@ export default function CheckoutPage() {
       const res = await fetch('/api/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, quantity: qty, coupon_code: appliedCoupon?.code || '' }),
+        body: JSON.stringify({ ...form, quantity: qty, coupon_code: appliedCoupon?.code || '', ...utm }),
       });
       const data = await res.json();
 
@@ -5136,6 +5185,9 @@ create table if not exists orders (
   subtotal numeric(10,2) not null,
   coupon_code text,
   discount_amount numeric(10,2) not null default 0,
+  utm_source text,
+  utm_medium text,
+  utm_campaign text,
   shipping_fee numeric(10,2) not null default 0,
   total_amount numeric(10,2) not null,
   razorpay_order_id text,

@@ -27,11 +27,12 @@ export default async function InfluencerDetailPage({ params }: { params: { id: s
   const couponCodes = (influencer.coupons || []).map((c: any) => c.code);
 
   // Fetch orders driven by this influencer’s coupons
+  const codeList = couponCodes.map((c: string) => `"${c}"`).join(',');
   const { data: orders } = couponCodes.length
     ? await supabase
         .from('orders')
         .select('*')
-        .in('coupon_code', couponCodes)
+        .or(`coupon_code.in.(${codeList}),utm_campaign.in.(${codeList})`)
         .order('created_at', { ascending: false })
     : { data: [] as any[] };
 

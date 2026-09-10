@@ -49,8 +49,9 @@ export default async function InfluencerDashboard() {
   const { data: coupons } = await supabase.from('coupons').select('code').eq('influencer_id', influencer.id);
   const couponCodes = coupons?.map(c => c.code) || [];
 
+  const codeList = couponCodes.map((c: string) => `"${c}"`).join(',');
   const { data: orders } = couponCodes.length
-    ? await supabase.from('orders').select('*').in('coupon_code', couponCodes).order('created_at', { ascending: false })
+    ? await supabase.from('orders').select('*').or(`coupon_code.in.(${codeList}),utm_campaign.in.(${codeList})`).order('created_at', { ascending: false })
     : { data: [] };
 
   const allOrders = orders || [];
