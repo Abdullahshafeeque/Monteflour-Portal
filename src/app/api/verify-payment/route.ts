@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { supabaseAdmin } from '@/lib/supabaseServer';
+import { generateAndStoreInvoice } from '@/lib/generateInvoice';
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
     .from('orders')
     .update({ payment_status: 'paid', razorpay_payment_id })
     .eq('razorpay_order_id', razorpay_order_id)
-    .select('order_number, coupon_code')
+    .select('id, order_number, coupon_code')
     .maybeSingle();
 
   if (order?.coupon_code) {
@@ -44,6 +45,17 @@ export async function POST(req: NextRequest) {
         .eq('code', order.coupon_code);
     }
   }
+
+  if (order?.id) {
+   try {
+     await generateAndStoreInvoice(order.id);
+   } catch (err) {
+     console.error('Invoice generation failed for order', order.id, err);
+     // don't fail the payment response just because the invoice failed —
+     // you can regenerate it later by calling generateAndStoreInvoice(order.id) again
+   }
+ }
+
 
   return NextResponse.json({ success: true, order_number: order?.order_number || null });
 }
