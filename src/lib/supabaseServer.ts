@@ -20,6 +20,20 @@
                 get(name: string) { 
                   return cookieStore.get(name)?.value; 
                 },
+                set(name: string, value: string, options: any) {
+         try {
+           cookieStore.set({ name, value, ...options });
+         } catch {
+           // no-op when called somewhere that can't set cookies (e.g. a Server Component)
+         }
+       },
+       remove(name: string, options: any) {
+         try {
+           cookieStore.set({ name, value: '', ...options });
+         } catch {
+           // no-op, same as above
+         }
+       },
                }, 
               }
              );

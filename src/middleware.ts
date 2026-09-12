@@ -20,7 +20,7 @@ export async function middleware(request: NextRequest) {
 
   const { data: { session } } = await supabase.auth.getSession();
   const path = request.nextUrl.pathname;
-  const isAdminRoute = path.startsWith('/admin');
+  const isAdminRoute = path.startsWith('/admin') || path.startsWith('/api/admin');
   const isInfluencerRoute = path.startsWith('/influencer');
 
   if (!session) {

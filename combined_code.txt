@@ -31,6 +31,7 @@ module.exports = nextConfig;
         "@supabase/ssr": "^0.4.0",
         "@supabase/supabase-js": "^2.45.0",
         "next": "14.2.35",
+        "pdf-lib": "^1.17.1",
         "react": "^18.3.1",
         "react-dom": "^18.3.1"
       },
@@ -189,6 +190,24 @@ module.exports = nextConfig;
       ],
       "engines": {
         "node": ">= 10"
+      }
+    },
+    "node_modules/@pdf-lib/standard-fonts": {
+      "version": "1.0.0",
+      "resolved": "https://registry.npmjs.org/@pdf-lib/standard-fonts/-/standard-fonts-1.0.0.tgz",
+      "integrity": "sha512-hU30BK9IUN/su0Mn9VdlVKsWBS6GyhVfqjwl1FjZN4TxP6cCw0jP2w7V3Hf5uX7M0AZJ16vey9yE0ny7Sa59ZA==",
+      "license": "MIT",
+      "dependencies": {
+        "pako": "^1.0.6"
+      }
+    },
+    "node_modules/@pdf-lib/upng": {
+      "version": "1.0.1",
+      "resolved": "https://registry.npmjs.org/@pdf-lib/upng/-/upng-1.0.1.tgz",
+      "integrity": "sha512-dQK2FUMQtowVP00mtIksrlZhdFXQZPC+taih1q4CvPZ5vqdxR/LKBaFg0oAfzd1GlHZXXSPdQfzQnt+ViGvEIQ==",
+      "license": "MIT",
+      "dependencies": {
+        "pako": "^1.0.10"
       }
     },
     "node_modules/@rollup/rollup-linux-x64-gnu": {
@@ -519,6 +538,30 @@ module.exports = nextConfig;
         }
       }
     },
+    "node_modules/pako": {
+      "version": "1.0.11",
+      "resolved": "https://registry.npmjs.org/pako/-/pako-1.0.11.tgz",
+      "integrity": "sha512-4hLB8Py4zZce5s4yd9XzopqwVv/yGNhV1Bl8NTmCq1763HeK2+EwVTv+leGeL13Dnh2wfbqowVPXCIO0z4taYw==",
+      "license": "(MIT AND Zlib)"
+    },
+    "node_modules/pdf-lib": {
+      "version": "1.17.1",
+      "resolved": "https://registry.npmjs.org/pdf-lib/-/pdf-lib-1.17.1.tgz",
+      "integrity": "sha512-V/mpyJAoTsN4cnP31vc0wfNA1+p20evqqnap0KLoRUN0Yk/p3wN52DOEsL4oBFcLdb76hlpKPtzJIgo67j/XLw==",
+      "license": "MIT",
+      "dependencies": {
+        "@pdf-lib/standard-fonts": "^1.0.0",
+        "@pdf-lib/upng": "^1.0.1",
+        "pako": "^1.0.11",
+        "tslib": "^1.11.1"
+      }
+    },
+    "node_modules/pdf-lib/node_modules/tslib": {
+      "version": "1.14.1",
+      "resolved": "https://registry.npmjs.org/tslib/-/tslib-1.14.1.tgz",
+      "integrity": "sha512-Xni35NKzjgMrwevysHTCArtLDpPvye8zV/0E4EyYn43P7/7qvQwPh9BGkHewbMulVntbigmcT7rdX3BNo9wRJg==",
+      "license": "0BSD"
+    },
     "node_modules/picocolors": {
       "version": "1.1.1",
       "resolved": "https://registry.npmjs.org/picocolors/-/picocolors-1.1.1.tgz",
@@ -671,17 +714,18 @@ module.exports = nextConfig;
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "14.2.35",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "@supabase/ssr": "^0.4.0",
     "@supabase/supabase-js": "^2.45.0",
-    "@supabase/ssr": "^0.4.0"
+    "next": "14.2.35",
+    "pdf-lib": "^1.17.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "typescript": "^5.5.4",
     "@types/node": "^20.14.15",
     "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0"
+    "@types/react-dom": "^18.3.0",
+    "typescript": "^5.5.4"
   }
 }
 
@@ -909,7 +953,7 @@ export async function middleware(request: NextRequest) {
   return response;
 }
 
-export const config = { matcher: ['/admin/:path*', '/influencer/:path*'] };
+export const config = { matcher: ['/admin/:path*', '/influencer/:path*', '/api/admin/:path*'] };
 
 
 ===== FILE: src\app\globals.css =====
@@ -1355,6 +1399,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <Link href="/admin/dashboard">Orders</Link>
           <Link href="/admin/analytics">Analytics</Link>
           <Link href="/admin/coupons">Coupons</Link>
+           <Link href="/admin/invoices">Invoices</Link>
                     <Link href="/admin/shipping">Shipping</Link>
           <Link href="/admin/influencers">Influencers</Link>
           <Link href="/admin/payouts">Payouts</Link>
@@ -2408,6 +2453,38 @@ export default async function InfluencerDetailPage({ params }: { params: { id: s
 }
 
 
+===== FILE: src\app\admin\invoices\page.tsx =====
+
+// src/app/admin/invoices/page.tsx
+//
+// Plain HTML form — submitting it navigates the browser straight to the
+// CSV download, no client-side JS required.
+
+export default function InvoicesExportPage() {
+  const today = new Date().toISOString().slice(0, 10);
+  const firstOfMonth = today.slice(0, 8) + '01';
+
+  return (
+    <div className="admin-page">
+      <h1>Export Invoices</h1>
+      <p>Download Monteflour's GST invoices for a date range, for Tally import.</p>
+
+      <form action="/api/admin/export-invoices" method="GET" target="_blank">
+        <div className="form-row">
+          <label htmlFor="from">From</label>
+          <input type="date" id="from" name="from" defaultValue={firstOfMonth} required />
+        </div>
+        <div className="form-row">
+          <label htmlFor="to">To</label>
+          <input type="date" id="to" name="to" defaultValue={today} required />
+        </div>
+        <button type="submit" className="btn-submit">Download CSV</button>
+      </form>
+    </div>
+  );
+}
+
+
 ===== FILE: src\app\admin\orders\actions.ts =====
 
 'use server';
@@ -2883,6 +2960,235 @@ export async function POST(req: NextRequest) {
 }
 
 
+===== FILE: src\app\api\admin\export-invoices\route.ts =====
+
+// src/app/api/admin/export-invoices/route.ts
+//
+// GET /api/admin/export-invoices?from=2026-09-01&to=2026-09-30
+// Downloads a CSV of every invoice in that date range, ready to hand to
+// your accountant for import into Tally.
+
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin, supabaseServerClient } from '@/lib/supabaseServer';
+
+const ADMIN_EMAIL = 'abdshafeeque@gmail.com';
+const PRODUCT_NAME = process.env.NEXT_PUBLIC_PRODUCT_NAME || 'Monteflour';
+
+export async function GET(req: NextRequest) {
+  // Same auth check used by the other protected /api/admin/* routes.
+  const authClient = supabaseServerClient();
+  const { data: { user } } = await authClient.auth.getUser();
+  if (!user || user.email !== ADMIN_EMAIL) {
+    return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const from = searchParams.get('from');
+  const to = searchParams.get('to');
+
+  if (!from || !to) {
+    return NextResponse.json({ message: 'Both from and to dates are required (YYYY-MM-DD).' }, { status: 400 });
+  }
+
+  const supabase = supabaseAdmin();
+
+  // orders(quantity, unit_price) pulls those two columns from the linked
+  // order via the order_id foreign key — no separate query needed.
+  const { data: invoices, error } = await supabase
+    .from('invoices')
+    .select('*, orders(quantity, unit_price)')
+    .gte('invoice_date', from)
+    .lte('invoice_date', to)
+    .order('invoice_number', { ascending: true });
+
+  if (error) {
+    return NextResponse.json({ message: error.message }, { status: 500 });
+  }
+
+  const header = [
+    'Date',
+    'Invoice No',
+    'Party Name',
+    'Party Address',
+    'Party State',
+    'Party GSTIN',
+    'Item Name',
+    'HSN/SAC',
+    'Quantity',
+    'Rate',
+    'Taxable Value',
+    'CGST Amount',
+    'SGST Amount',
+    'IGST Amount',
+    'Total Amount',
+  ];
+
+  const rows = (invoices || []).map((inv: any) => [
+    formatDateDDMMYYYY(inv.invoice_date),
+    inv.invoice_number,
+    inv.customer_name,
+    inv.customer_address,
+    inv.customer_state,
+    '', // B2C — no customer GSTIN captured at checkout
+    PRODUCT_NAME,
+    inv.hsn_code,
+    inv.orders?.quantity ?? '',
+    inv.orders?.unit_price ?? '',
+    inv.taxable_value,
+    inv.cgst_amount,
+    inv.sgst_amount,
+    inv.igst_amount,
+    inv.total_amount,
+  ]);
+
+  const csv = [header, ...rows].map((row) => row.map(csvEscape).join(',')).join('\r\n');
+
+  return new NextResponse(csv, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="monteflour-invoices_${from}_to_${to}.csv"`,
+    },
+  });
+}
+
+function csvEscape(value: unknown): string {
+  const str = String(value ?? '');
+  // Quote any field containing a comma, quote, or newline; double up internal quotes.
+  if (/[",\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+function formatDateDDMMYYYY(isoDate: string): string {
+  const [year, month, day] = isoDate.split('-');
+  return `${day}-${month}-${year}`;
+}
+
+
+===== FILE: src\app\api\admin\invoices\by-order\[orderId]\route.ts =====
+
+// src/app/api/admin/invoices/by-order/[orderId]/route.ts
+//
+// GET /api/admin/invoices/by-order/123
+// Looks up the invoice linked to this order and redirects to its stored
+// PDF. If no invoice exists yet (order predates this feature, or was a
+// Razorpay test-mode payment that got skipped), returns a plain message
+// instead of a broken redirect.
+
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin, supabaseServerClient } from '@/lib/supabaseServer';
+
+const ADMIN_EMAIL = 'abdshafeeque@gmail.com';
+
+export async function GET(req: NextRequest, { params }: { params: { orderId: string } }) {
+  const authClient = supabaseServerClient();
+  const { data: { user } } = await authClient.auth.getUser();
+  if (!user || user.email !== ADMIN_EMAIL) {
+    return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 });
+  }
+
+  const orderId = Number(params.orderId);
+  if (!orderId) {
+    return NextResponse.json({ message: 'Invalid order id.' }, { status: 400 });
+  }
+
+  const supabase = supabaseAdmin();
+  const { data: invoice } = await supabase
+    .from('invoices')
+    .select('pdf_url')
+    .eq('order_id', orderId)
+    .maybeSingle();
+
+  if (!invoice?.pdf_url) {
+    return new NextResponse('No invoice has been generated for this order yet.', {
+      status: 404,
+      headers: { 'Content-Type': 'text/plain' },
+    });
+  }
+
+  return NextResponse.redirect(invoice.pdf_url);
+}
+
+
+===== FILE: src\app\api\admin\preview-invoice\route.ts =====
+
+// src/app/api/admin/preview-invoice/route.ts
+//
+// GET /api/admin/preview-invoice
+// Renders one sample invoice PDF using made-up data. Doesn't touch the
+// orders/invoices tables, doesn't call next_invoice_number(), so it can't
+// create a gap in your real invoice sequence — safe to open as many times
+// as you like.
+
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseServerClient } from '@/lib/supabaseServer';
+import { calculateGstInclusive } from '@/lib/gst';
+import { generateInvoicePdf } from '@/lib/invoice-pdf';
+
+const ADMIN_EMAIL = 'abdshafeeque@gmail.com';
+
+// TODO: keep these in sync with the real values in generateInvoice.ts
+const SELLER = {
+  name: 'Punathil Roller Flour Mills Pvt. Ltd.',
+  address: 'REPLACE_WITH_REGISTERED_ADDRESS, Kannur, Kerala - PIN',
+  gstin: 'REPLACE_WITH_GSTIN',
+};
+
+const PRODUCT_NAME = process.env.NEXT_PUBLIC_PRODUCT_NAME || 'Monteflour';
+const UNIT_PRICE = Number(process.env.NEXT_PUBLIC_PRODUCT_PRICE || 500);
+
+export async function GET(req: NextRequest) {
+  const authClient = supabaseServerClient();
+  const { data: { user } } = await authClient.auth.getUser();
+  if (!user || user.email !== ADMIN_EMAIL) {
+    return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 });
+  }
+
+  // Change ?state=Maharashtra in the URL to preview an inter-state (IGST) invoice.
+  const buyerState = req.nextUrl.searchParams.get('state') || 'Kerala';
+
+  const quantity = 2;
+  const subtotal = UNIT_PRICE * quantity;
+  const discountAmount = 0;
+  const shippingFee = 90;
+  const totalAmount = subtotal - discountAmount + shippingFee;
+
+  const { taxableValue, cgst, sgst, igst } = calculateGstInclusive(totalAmount, buyerState);
+
+  const pdfBytes = await generateInvoicePdf({
+    invoiceNumber: 'SAMPLE/PREVIEW',
+    invoiceDate: new Date().toISOString().slice(0, 10),
+    sellerName: SELLER.name,
+    sellerAddress: SELLER.address,
+    sellerGstin: SELLER.gstin,
+    buyerName: 'Test Customer',
+    buyerAddress: '123 Sample Street, Sample City, ' + buyerState + ', 682001',
+    buyerState,
+    productName: PRODUCT_NAME,
+    quantity,
+    unitPrice: UNIT_PRICE,
+    subtotal,
+    discountAmount,
+    shippingFee,
+    taxableValue,
+    cgst,
+    sgst,
+    igst,
+    totalAmount,
+  });
+
+  return new NextResponse(Buffer.from(pdfBytes), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'inline; filename="sample-invoice.pdf"',
+    },
+  });
+}
+
+
 ===== FILE: src\app\api\apply-coupon\route.ts =====
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -3176,6 +3482,7 @@ export async function POST(req: NextRequest) {
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { supabaseAdmin } from '@/lib/supabaseServer';
+import { generateAndStoreInvoice } from '@/lib/generateInvoice';
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -3203,7 +3510,7 @@ export async function POST(req: NextRequest) {
     .from('orders')
     .update({ payment_status: 'paid', razorpay_payment_id })
     .eq('razorpay_order_id', razorpay_order_id)
-    .select('order_number, coupon_code')
+    .select('id, order_number, coupon_code')
     .maybeSingle();
 
   if (order?.coupon_code) {
@@ -3219,6 +3526,17 @@ export async function POST(req: NextRequest) {
         .eq('code', order.coupon_code);
     }
   }
+
+  if (order?.id) {
+   try {
+     await generateAndStoreInvoice(order.id);
+   } catch (err) {
+     console.error('Invoice generation failed for order', order.id, err);
+     // don't fail the payment response just because the invoice failed —
+     // you can regenerate it later by calling generateAndStoreInvoice(order.id) again
+   }
+ }
+
 
   return NextResponse.json({ success: true, order_number: order?.order_number || null });
 }
@@ -5116,6 +5434,350 @@ export default function TrackingForm({
       )}
     </div>
   );
+}
+
+
+===== FILE: src\lib\generateInvoice.ts =====
+
+// src/lib/generateInvoice.ts
+//
+// Call generateAndStoreInvoice(orderId) once an order's payment_status is
+// 'paid'. It's safe to call more than once for the same order — it checks
+// for an existing invoice first and returns that instead of making a new one.
+
+import { supabaseAdmin } from "@/lib/supabaseServer";
+import { calculateGstInclusive, currentFinancialYear, HSN_CODE } from "@/lib/gst";
+import { generateInvoicePdf } from "@/lib/invoice-pdf";
+
+// TODO: fill in PRFM Pvt. Ltd.'s exact registered details
+const SELLER = {
+  name: "Punathil Roller Flour Mills Pvt. Ltd.",
+  address: "PPVI/300, Punathil Roller Flour Mills Pvt Ltd, Kottali Road, Kannur, Kannur, Kerala, 670005",
+  gstin: "32AABCP7017J1ZL",
+};
+
+const PRODUCT_NAME = process.env.NEXT_PUBLIC_PRODUCT_NAME || "Monteflour";
+
+export async function generateAndStoreInvoice(orderId: number) {
+  const supabase = supabaseAdmin();
+
+  // 1. Idempotency check — never allocate a number twice for one order.
+  const { data: existing } = await supabase
+    .from("invoices")
+    .select("id, pdf_url")
+    .eq("order_id", orderId)
+    .maybeSingle();
+
+  if (existing) {
+    return { invoiceId: existing.id, pdfUrl: existing.pdf_url };
+  }
+
+  // 2. Fetch the order.
+  const { data: order, error } = await supabase
+    .from("orders")
+    .select("*")
+    .eq("id", orderId)
+    .single();
+
+  if (error || !order) {
+    throw new Error(`Order ${orderId} not found`);
+  }
+
+  // 3. Allocate the next sequential invoice number for this GST FY.
+  const fy = currentFinancialYear();
+  const { data: invoiceNumber, error: numError } = await supabase.rpc(
+    "next_invoice_number",
+    { fy }
+  );
+  if (numError || !invoiceNumber) {
+    throw new Error("Failed to allocate invoice number");
+  }
+
+  // 4. Tax calc — price is GST-inclusive, so tax is pulled out of total_amount.
+  const { taxableValue, cgst, sgst, igst } = calculateGstInclusive(
+    order.total_amount,
+    order.state
+  );
+
+  const buyerAddress = [order.address_line1, order.address_line2, order.city, order.state, order.pincode]
+    .filter(Boolean)
+    .join(", ");
+
+  // 5. Render the PDF.
+  const pdfBytes = await generateInvoicePdf({
+    invoiceNumber,
+    invoiceDate: new Date().toISOString().slice(0, 10),
+    sellerName: SELLER.name,
+    sellerAddress: SELLER.address,
+    sellerGstin: SELLER.gstin,
+    buyerName: order.customer_name,
+    buyerAddress,
+    buyerState: order.state,
+    productName: PRODUCT_NAME,
+    quantity: order.quantity,
+    unitPrice: order.unit_price,
+    subtotal: order.subtotal,
+    discountAmount: order.discount_amount || 0,
+    shippingFee: order.shipping_fee || 0,
+    taxableValue,
+    cgst,
+    sgst,
+    igst,
+    totalAmount: order.total_amount,
+  });
+
+  // 6. Store the PDF in Supabase Storage.
+  const filePath = `invoices/${invoiceNumber.replace(/\//g, "-")}.pdf`;
+  const { error: uploadError } = await supabase.storage
+    .from("invoices")
+    .upload(filePath, pdfBytes, { contentType: "application/pdf" });
+
+  if (uploadError) {
+    throw new Error(`Failed to store invoice PDF: ${uploadError.message}`);
+  }
+
+  const { data: urlData } = supabase.storage.from("invoices").getPublicUrl(filePath);
+
+  // 7. Persist the invoice record — this is what your books/GSTR-1 export reads from.
+  const { data: invoice, error: insertError } = await supabase
+    .from("invoices")
+    .insert({
+      order_id: orderId,
+      invoice_number: invoiceNumber,
+      financial_year: fy,
+      customer_name: order.customer_name,
+      customer_address: buyerAddress,
+      customer_state: order.state,
+      taxable_value: taxableValue,
+      cgst_amount: cgst,
+      sgst_amount: sgst,
+      igst_amount: igst,
+      total_amount: order.total_amount,
+      hsn_code: HSN_CODE,
+      pdf_url: urlData.publicUrl,
+    })
+    .select()
+    .single();
+
+  if (insertError) {
+    throw new Error(`Failed to save invoice record: ${insertError.message}`);
+  }
+
+  return { invoiceId: invoice.id, pdfUrl: invoice.pdf_url };
+}
+
+
+===== FILE: src\lib\gst.ts =====
+
+// GST helpers for Monteflour invoicing.
+// Product is branded, pre-packaged multigrain flour -> HSN 1101, 5% GST
+// (post-22-Sep-2025 slab reform). Re-verify if your product mix changes.
+//
+// IMPORTANT: your checkout price is GST-INCLUSIVE (confirmed) — so tax is
+// extracted from the amount actually paid, not added on top.
+
+export const HSN_CODE = "1101";
+export const GST_RATE = 0.05;
+
+// PRFM Pvt. Ltd.'s GST registration state. Change if this isn't Kerala.
+export const SELLER_STATE = "Kerala";
+export const SELLER_STATE_CODE = "32";
+
+// Maps the exact state name strings used in your checkout page's
+// INDIAN_STATES list to their official GST state codes.
+export const STATE_GST_CODES: Record<string, string> = {
+  "Jammu and Kashmir": "01",
+  "Himachal Pradesh": "02",
+  Punjab: "03",
+  Chandigarh: "04",
+  Uttarakhand: "05",
+  Haryana: "06",
+  Delhi: "07",
+  Rajasthan: "08",
+  "Uttar Pradesh": "09",
+  Bihar: "10",
+  Sikkim: "11",
+  "Arunachal Pradesh": "12",
+  Nagaland: "13",
+  Manipur: "14",
+  Mizoram: "15",
+  Tripura: "16",
+  Meghalaya: "17",
+  Assam: "18",
+  "West Bengal": "19",
+  Jharkhand: "20",
+  Odisha: "21",
+  Chhattisgarh: "22",
+  "Madhya Pradesh": "23",
+  Gujarat: "24",
+  "Dadra and Nagar Haveli and Daman and Diu": "26",
+  Maharashtra: "27",
+  Karnataka: "29",
+  Goa: "30",
+  Lakshadweep: "31",
+  Kerala: "32",
+  "Tamil Nadu": "33",
+  Puducherry: "34",
+  "Andaman and Nicobar Islands": "35",
+  Telangana: "36",
+  "Andhra Pradesh": "37",
+  Ladakh: "38",
+};
+
+export interface GstBreakup {
+  taxableValue: number;
+  cgst: number;
+  sgst: number;
+  igst: number;
+  totalTax: number;
+}
+
+/**
+ * `totalPaid` is GST-inclusive (matches your checkout's total_amount).
+ * Extracts the taxable value and splits the tax into CGST+SGST (same-state
+ * sale) or IGST (inter-state sale), based on the customer's state name.
+ */
+export function calculateGstInclusive(totalPaid: number, buyerState: string): GstBreakup {
+  const taxableValue = round2(totalPaid / (1 + GST_RATE));
+  const totalTax = round2(totalPaid - taxableValue);
+
+  const buyerCode = STATE_GST_CODES[buyerState];
+  const isIntraState = buyerCode === SELLER_STATE_CODE;
+
+  if (isIntraState) {
+    const half = round2(totalTax / 2);
+    return { taxableValue, cgst: half, sgst: half, igst: 0, totalTax };
+  }
+  return { taxableValue, cgst: 0, sgst: 0, igst: totalTax, totalTax };
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * GST financial year runs Apr 1 - Mar 31, formatted "25-26" style,
+ * matching the FY key used by next_invoice_number() in Postgres.
+ */
+export function currentFinancialYear(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const isBeforeApril = date.getMonth() < 3; // Jan(0)-Mar(2)
+  const startYear = isBeforeApril ? year - 1 : year;
+  const shortStart = String(startYear).slice(-2);
+  const shortEnd = String(startYear + 1).slice(-2);
+  return `${shortStart}-${shortEnd}`;
+}
+
+
+===== FILE: src\lib\invoice-pdf.ts =====
+
+// npm install pdf-lib
+import { PDFDocument, StandardFonts, rgb, PDFFont } from "pdf-lib";
+
+export interface InvoiceData {
+  invoiceNumber: string;
+  invoiceDate: string;
+  sellerName: string;
+  sellerAddress: string;
+  sellerGstin: string;
+  buyerName: string;
+  buyerAddress: string;
+  buyerState: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+  discountAmount: number;
+  shippingFee: number;
+  taxableValue: number;
+  cgst: number;
+  sgst: number;
+  igst: number;
+  totalAmount: number;
+}
+
+export async function generateInvoicePdf(data: InvoiceData): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([595, 842]); // A4
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+
+  let y = 800;
+  const left = 40;
+
+  const draw = (text: string, x: number, size = 10, f: PDFFont = font) => {
+    page.drawText(text, { x, y, size, font: f, color: rgb(0, 0, 0) });
+  };
+  const newLine = (gap = 14) => (y -= gap);
+
+  draw(data.sellerName, left, 14, bold); newLine(16);
+  draw(data.sellerAddress, left, 9); newLine(12);
+  draw(`GSTIN: ${data.sellerGstin}`, left, 9); newLine(24);
+
+  draw("TAX INVOICE", left, 12, bold); newLine(18);
+  draw(`Invoice No: ${data.invoiceNumber}`, left, 10);
+  draw(`Date: ${data.invoiceDate}`, 380, 10);
+  newLine(16);
+  draw(`Place of Supply: ${data.buyerState}`, left, 10); newLine(20);
+
+  draw("Bill To:", left, 10, bold); newLine(14);
+  draw(data.buyerName, left, 10); newLine(12);
+  draw(data.buyerAddress, left, 9); newLine(24);
+
+  // Line item table
+  draw("Description", left, 9, bold);
+  draw("HSN", 260, 9, bold);
+  draw("Qty", 310, 9, bold);
+  draw("Rate", 360, 9, bold);
+  draw("Amount", 450, 9, bold);
+  newLine(14);
+
+  draw(data.productName, left, 9);
+  draw("1101", 260, 9);
+  draw(String(data.quantity), 310, 9);
+  draw(data.unitPrice.toFixed(2), 360, 9);
+  draw(data.subtotal.toFixed(2), 450, 9);
+  newLine(20);
+
+  if (data.discountAmount > 0) {
+    draw("Discount", 350, 9);
+    draw(`- Rs ${data.discountAmount.toFixed(2)}`, 460, 9);
+    newLine(12);
+  }
+  if (data.shippingFee > 0) {
+    draw("Shipping", 350, 9);
+    draw(`Rs ${data.shippingFee.toFixed(2)}`, 460, 9);
+    newLine(12);
+  }
+  newLine(6);
+
+  draw("Taxable Value:", 350, 9);
+  draw(`Rs ${data.taxableValue.toFixed(2)}`, 470, 9);
+  newLine(12);
+
+  if (data.cgst > 0) {
+    draw("CGST (2.5%):", 350, 9);
+    draw(`Rs ${data.cgst.toFixed(2)}`, 470, 9);
+    newLine(12);
+  }
+  if (data.sgst > 0) {
+    draw("SGST (2.5%):", 350, 9);
+    draw(`Rs ${data.sgst.toFixed(2)}`, 470, 9);
+    newLine(12);
+  }
+  if (data.igst > 0) {
+    draw("IGST (5%):", 350, 9);
+    draw(`Rs ${data.igst.toFixed(2)}`, 470, 9);
+    newLine(12);
+  }
+
+  draw("Total (tax incl.):", 350, 11, bold);
+  draw(`Rs ${data.totalAmount.toFixed(2)}`, 460, 11, bold);
+  newLine(24);
+
+  draw("This is a computer-generated invoice and does not require a signature.", left, 8);
+
+  return doc.save();
 }
 
 
