@@ -20,6 +20,12 @@ const PRODUCT_NAME = process.env.NEXT_PUBLIC_PRODUCT_NAME || "Monteflour";
 export async function generateAndStoreInvoice(orderId: number) {
   const supabase = supabaseAdmin();
 
+  if (process.env.RAZORPAY_KEY_ID?.startsWith('rzp_test_')) {
+   console.log(`Skipping invoice for order ${orderId} — Razorpay test mode`);
+   return null;
+ }
+
+
   // 1. Idempotency check — never allocate a number twice for one order.
   const { data: existing } = await supabase
     .from("invoices")

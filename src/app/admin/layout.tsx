@@ -1,5 +1,4 @@
-import Link from 'next/link';
-import SignOutButton from '@/components/SignOutButton';
+import AdminSidebar from '@/components/AdminSidebar';
 import { supabaseServerClient } from '@/lib/supabaseServer';
 import { redirect } from 'next/navigation';
 
@@ -14,21 +13,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   }
 
   return (
-    <div>
-      <nav className="admin-nav">
-        <span className="brand">Monteflour Admin</span>
-        <div className="nav-links">
-          <Link href="/admin/dashboard">Orders</Link>
-          <Link href="/admin/analytics">Analytics</Link>
-          <Link href="/admin/coupons">Coupons</Link>
-           <Link href="/admin/invoices">Invoices</Link>
-                    <Link href="/admin/shipping">Shipping</Link>
-          <Link href="/admin/influencers">Influencers</Link>
-          <Link href="/admin/payouts">Payouts</Link>
-          <SignOutButton />
-        </div>
-      </nav>
-      {children}
+    <div className="admin-shell">
+      <AdminSidebar userName="Abdullah Shafeeque" />
+      <div className="admin-content">{children}</div>
     </div>
   );
 }

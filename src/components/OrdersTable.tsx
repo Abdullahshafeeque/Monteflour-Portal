@@ -114,7 +114,7 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
           <thead>
             <tr>
               <th>Order #</th><th>Customer</th><th>Phone</th><th>City / State</th>
-              <th>Qty</th><th>Coupon</th><th>Total</th><th>Payment</th><th>Attempts</th><th>Fulfillment</th><th>Date</th>
+              <th>Qty</th><th>Coupon</th><th>Total</th><th>Payment</th><th>Attempts</th><th>Fulfillment</th><th>Date</th><th>Invoice</th>
             </tr>
           </thead>
           <tbody>
@@ -131,6 +131,13 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
                 <td>{o.attempt_count && o.attempt_count > 1 ? `${o.attempt_count}x` : '—'}</td>
                 <td><StatusSelect orderId={o.id} currentStatus={o.fulfillment_status || 'new'} /></td>
                 <td>{new Date(o.created_at).toLocaleString('en-IN')}</td>
+              <td>
+                 {o.payment_status === 'paid' && (
+                   <a href={`/api/admin/invoices/by-order/${o.id}`} target="_blank" rel="noopener noreferrer">
+                     View
+                   </a>
+                 )}
+               </td>
               </tr>
             ))}
           </tbody>

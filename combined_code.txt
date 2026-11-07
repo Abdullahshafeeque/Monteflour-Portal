@@ -927,7 +927,7 @@ export async function middleware(request: NextRequest) {
 
   const { data: { session } } = await supabase.auth.getSession();
   const path = request.nextUrl.pathname;
-  const isAdminRoute = path.startsWith('/admin');
+  const isAdminRoute = path.startsWith('/admin') || path.startsWith('/api/admin');
   const isInfluencerRoute = path.startsWith('/influencer');
 
   if (!session) {
@@ -5200,7 +5200,7 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
           <thead>
             <tr>
               <th>Order #</th><th>Customer</th><th>Phone</th><th>City / State</th>
-              <th>Qty</th><th>Coupon</th><th>Total</th><th>Payment</th><th>Attempts</th><th>Fulfillment</th><th>Date</th>
+              <th>Qty</th><th>Coupon</th><th>Total</th><th>Payment</th><th>Attempts</th><th>Fulfillment</th><th>Date</th><th>Invoice</th>
             </tr>
           </thead>
           <tbody>
@@ -5217,6 +5217,13 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
                 <td>{o.attempt_count && o.attempt_count > 1 ? `${o.attempt_count}x` : '—'}</td>
                 <td><StatusSelect orderId={o.id} currentStatus={o.fulfillment_status || 'new'} /></td>
                 <td>{new Date(o.created_at).toLocaleString('en-IN')}</td>
+              <td>
+                 {o.payment_status === 'paid' && (
+                   <a href={`/api/admin/invoices/by-order/${o.id}`} target="_blank" rel="noopener noreferrer">
+                     View
+                   </a>
+                 )}
+               </td>
               </tr>
             ))}
           </tbody>
@@ -5460,6 +5467,12 @@ const PRODUCT_NAME = process.env.NEXT_PUBLIC_PRODUCT_NAME || "Monteflour";
 
 export async function generateAndStoreInvoice(orderId: number) {
   const supabase = supabaseAdmin();
+
+  if (process.env.RAZORPAY_KEY_ID?.startsWith('rzp_test_')) {
+   console.log(`Skipping invoice for order ${orderId} — Razorpay test mode`);
+   return null;
+ }
+
 
   // 1. Idempotency check — never allocate a number twice for one order.
   const { data: existing } = await supabase
@@ -5820,6 +5833,20 @@ export function supabaseBrowser() {
                 get(name: string) { 
                   return cookieStore.get(name)?.value; 
                 },
+                set(name: string, value: string, options: any) {
+         try {
+           cookieStore.set({ name, value, ...options });
+         } catch {
+           // no-op when called somewhere that can't set cookies (e.g. a Server Component)
+         }
+       },
+       remove(name: string, options: any) {
+         try {
+           cookieStore.set({ name, value: '', ...options });
+         } catch {
+           // no-op, same as above
+         }
+       },
                }, 
               }
              );
