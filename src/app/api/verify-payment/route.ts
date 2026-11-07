@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { supabaseAdmin } from '@/lib/supabaseServer';
-import { generateAndStoreInvoice } from '@/lib/generateInvoice';
+import { markOrderPaid } from '@/lib/markOrderPaid';
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -13,7 +12,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Missing payment details.' }, { status: 400 });
   }
 
-  // ---- this signature check is what actually proves the payment is genuine ----
+  // this signature check is what actually proves the payment is genuine
   const expected = crypto
     .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!)
     .update(`${razorpay_order_id}|${razorpay_payment_id}`)
@@ -23,39 +22,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Payment verification failed.' }, { status: 400 });
   }
 
-  const supabase = supabaseAdmin();
+  try {
+    const result = await markOrderPaid(razorpay_order_id, razorpay_payment_id);
 
-  const { data: order } = await supabase
-    .from('orders')
-    .update({ payment_status: 'paid', razorpay_payment_id })
-    .eq('razorpay_order_id', razorpay_order_id)
-    .select('id, order_number, coupon_code')
-    .maybeSingle();
-
-  if (order?.coupon_code) {
-    const { data: coupon } = await supabase
-      .from('coupons')
-      .select('used_count')
-      .eq('code', order.coupon_code)
-      .maybeSingle();
-    if (coupon) {
-      await supabase
-        .from('coupons')
-        .update({ used_count: coupon.used_count + 1 })
-        .eq('code', order.coupon_code);
+    if (result.status === 'not_found') {
+      return NextResponse.json({ success: false, error: 'Order not found.' }, { status: 404 });
     }
+    if (result.status === 'amount_mismatch') {
+      return NextResponse.json({ success: false, error: 'Payment amount mismatch.' }, { status: 400 });
+    }
+
+    return NextResponse.json({ success: true, order_number: result.orderNumber });
+  } catch (err) {
+    console.error('verify-payment failed:', err);
+    return NextResponse.json({ success: false, error: 'Could not record the payment.' }, { status: 500 });
   }
-
-  if (order?.id) {
-   try {
-     await generateAndStoreInvoice(order.id);
-   } catch (err) {
-     console.error('Invoice generation failed for order', order.id, err);
-     // don't fail the payment response just because the invoice failed —
-     // you can regenerate it later by calling generateAndStoreInvoice(order.id) again
-   }
- }
-
-
-  return NextResponse.json({ success: true, order_number: order?.order_number || null });
 }
