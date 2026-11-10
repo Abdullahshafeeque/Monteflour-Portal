@@ -91,7 +91,7 @@ export async function generateAndStoreInvoice(orderId: number) {
     totalAmount: order.total_amount,
   });
 
-  // 6. Store the PDF in Supabase Storage.
+  // 6. Store the PDF in Supabase Storage (the bucket is private).
   const filePath = `invoices/${invoiceNumber.replace(/\//g, "-")}.pdf`;
   const { error: uploadError } = await supabase.storage
     .from("invoices")
@@ -100,8 +100,6 @@ export async function generateAndStoreInvoice(orderId: number) {
   if (uploadError) {
     throw new Error(`Failed to store invoice PDF: ${uploadError.message}`);
   }
-
-  const { data: urlData } = supabase.storage.from("invoices").getPublicUrl(filePath);
 
   // 7. Persist the invoice record — this is what your books/GSTR-1 export reads from.
   const { data: invoice, error: insertError } = await supabase
@@ -119,7 +117,7 @@ export async function generateAndStoreInvoice(orderId: number) {
       igst_amount: igst,
       total_amount: order.total_amount,
       hsn_code: HSN_CODE,
-      pdf_url: urlData.publicUrl,
+      pdf_url: filePath,
     })
     .select()
     .single();

@@ -1,13 +1,12 @@
-// src/app/api/admin/invoices/by-order/[orderId]/route.ts
-//
 // GET /api/admin/invoices/by-order/123
-// Looks up the invoice linked to this order and redirects to its stored
-// PDF. If no invoice exists yet (order predates this feature, or was a
-// Razorpay test-mode payment that got skipped), returns a plain message
-// instead of a broken redirect.
+// Admin only. Looks up the invoice for this order and sends you to a
+// temporary (2 minute) link to the PDF. The storage bucket is private,
+// so the PDF can't be opened without a link made by this route.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, supabaseServerClient } from '@/lib/supabaseServer';
+
+export const dynamic = 'force-dynamic';
 
 const ADMIN_EMAIL = 'abdshafeeque@gmail.com';
 
@@ -37,5 +36,27 @@ export async function GET(req: NextRequest, { params }: { params: { orderId: str
     });
   }
 
-  return NextResponse.redirect(invoice.pdf_url);
+  // New invoices store just the file's location. Older ones stored a full public
+  // web link, so pull the location out of that if needed.
+  const stored: string = invoice.pdf_url;
+  const marker = '/object/public/invoices/';
+  const filePath = stored.includes(marker)
+    ? decodeURIComponent(stored.split(marker)[1])
+    : stored;
+
+  const { data: signed, error } = await supabase.storage
+    .from('invoices')
+    .createSignedUrl(filePath, 120);
+
+  if (error || !signed?.signedUrl) {
+    console.error('Could not create invoice link for order', orderId, error?.message);
+    return new NextResponse('Could not open this invoice. Please try again.', {
+      status: 500,
+      headers: { 'Content-Type': 'text/plain' },
+    });
+  }
+
+  const res = NextResponse.redirect(signed.signedUrl);
+  res.headers.set('Cache-Control', 'no-store');
+  return res;
 }
