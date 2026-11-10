@@ -1188,6 +1188,45 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--sky-deep);border
   0% { opacity: 0.4; transform: translateY(-2px); }
   100% { opacity: 1; transform: translateY(0); }
 }
+/* ---------- admin sidebar layout ---------- */
+.admin-shell{display:flex;min-height:100vh;}
+.admin-content{flex:1;min-width:0;}
+
+.admin-sidebar{width:230px;flex-shrink:0;background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;}
+.sidebar-brand{padding:1.2rem 1.2rem .8rem;}
+.sidebar-brand-name{font-family:'Bebas Neue',sans-serif;font-size:1.4rem;letter-spacing:.06em;color:var(--navy);}
+.sidebar-brand-sub{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);}
+
+.sidebar-user{display:flex;align-items:center;gap:.7rem;margin:0 .8rem 1rem;padding:.7rem;border:1px solid var(--border);border-radius:10px;background:var(--off-white);}
+.sidebar-avatar{width:34px;height:34px;border-radius:50%;background:var(--peach);color:var(--navy);font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.sidebar-user-name{font-size:.82rem;font-weight:700;color:var(--navy);}
+.sidebar-user-role{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.58rem;letter-spacing:.1em;color:var(--muted);}
+
+.sidebar-nav{flex:1;padding:0 .6rem;}
+.sidebar-group-title{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.6rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);padding:.9rem .6rem .35rem;}
+.sidebar-link{display:flex;align-items:center;gap:.65rem;padding:.55rem .7rem;border-radius:8px;color:var(--muted);text-decoration:none;font-size:.88rem;font-weight:500;}
+.sidebar-link:hover{background:var(--sky-light);color:var(--navy);}
+.sidebar-link.active{background:var(--peach);color:var(--navy);font-weight:700;}
+.sidebar-icon{width:1.2rem;text-align:center;}
+
+.sidebar-footer{padding:.8rem 1rem;border-top:1px solid var(--border);}
+.admin-sidebar .nav-link-btn{color:var(--navy);}
+
+.admin-mobilebar{display:none;}
+
+@media(max-width:860px){
+  .admin-shell{flex-direction:column;}
+  .admin-mobilebar{display:flex;justify-content:space-between;align-items:center;background:var(--navy);color:#fff;padding:.8rem 1.2rem;}
+  .admin-mobilebar .brand{font-family:'Bebas Neue',sans-serif;letter-spacing:.06em;font-size:1.2rem;}
+  .admin-mobilebar button{background:var(--peach);color:var(--navy);border:none;border-radius:6px;padding:.4rem .9rem;font-weight:700;cursor:pointer;}
+  .admin-sidebar{display:none;position:static;width:100%;height:auto;}
+  .admin-sidebar.open{display:flex;}
+}
+
+@media print{
+  .admin-sidebar,.admin-mobilebar{display:none !important;}
+  .admin-shell{display:block;}
+}
 
 
 ===== FILE: src\app\layout.tsx =====
@@ -1376,8 +1415,7 @@ export async function deleteShippingRule(id: number) {
 
 ===== FILE: src\app\admin\layout.tsx =====
 
-import Link from 'next/link';
-import SignOutButton from '@/components/SignOutButton';
+import AdminSidebar from '@/components/AdminSidebar';
 import { supabaseServerClient } from '@/lib/supabaseServer';
 import { redirect } from 'next/navigation';
 
@@ -1392,21 +1430,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   }
 
   return (
-    <div>
-      <nav className="admin-nav">
-        <span className="brand">Monteflour Admin</span>
-        <div className="nav-links">
-          <Link href="/admin/dashboard">Orders</Link>
-          <Link href="/admin/analytics">Analytics</Link>
-          <Link href="/admin/coupons">Coupons</Link>
-           <Link href="/admin/invoices">Invoices</Link>
-                    <Link href="/admin/shipping">Shipping</Link>
-          <Link href="/admin/influencers">Influencers</Link>
-          <Link href="/admin/payouts">Payouts</Link>
-          <SignOutButton />
-        </div>
-      </nav>
-      {children}
+    <div className="admin-shell">
+      <AdminSidebar userName="Abdullah Shafeeque" />
+      <div className="admin-content">{children}</div>
     </div>
   );
 }
@@ -3401,6 +3427,70 @@ export async function POST(req: NextRequest) {
 }
 
 
+===== FILE: src\app\api\razorpay-webhook\route.ts =====
+
+import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
+import { markOrderPaid } from '@/lib/markOrderPaid';
+
+export const dynamic = 'force-dynamic';
+
+export async function POST(req: NextRequest) {
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  if (!secret) {
+    console.error('RAZORPAY_WEBHOOK_SECRET is not set');
+    return NextResponse.json({ error: 'Webhook not configured.' }, { status: 500 });
+  }
+
+  // The signature is calculated on the EXACT raw text Razorpay sent,
+  // so we must read it as text first, before turning it into JSON.
+  const rawBody = await req.text();
+  const signature = req.headers.get('x-razorpay-signature') || '';
+
+  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+  const a = Buffer.from(expected);
+  const b = Buffer.from(signature);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    return NextResponse.json({ error: 'Invalid signature.' }, { status: 400 });
+  }
+
+  let event: any;
+  try {
+    event = JSON.parse(rawBody);
+  } catch {
+    return NextResponse.json({ error: 'Bad payload.' }, { status: 400 });
+  }
+
+  // We only care about "payment succeeded" events. Anything else: say OK and ignore.
+  if (event.event !== 'payment.captured' && event.event !== 'order.paid') {
+    return NextResponse.json({ ok: true, ignored: true });
+  }
+
+  const payment = event.payload?.payment?.entity;
+  const razorpayOrderId = payment?.order_id || event.payload?.order?.entity?.id;
+  const razorpayPaymentId = payment?.id;
+
+  if (!razorpayOrderId || !razorpayPaymentId) {
+    return NextResponse.json({ ok: true, ignored: true });
+  }
+
+  try {
+    const result = await markOrderPaid(
+      razorpayOrderId,
+      razorpayPaymentId,
+      typeof payment?.amount === 'number' ? payment.amount : undefined
+    );
+    console.log(`Razorpay webhook (${event.event}) -> ${result.status} for ${razorpayOrderId}`);
+    return NextResponse.json({ ok: true, result: result.status });
+  } catch (err) {
+    // A 500 tells Razorpay to try again later, so a temporary database
+    // problem doesn't lose the payment.
+    console.error('Razorpay webhook processing failed:', err);
+    return NextResponse.json({ error: 'Processing failed.' }, { status: 500 });
+  }
+}
+
+
 ===== FILE: src\app\api\shipping-rate\route.ts =====
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -3481,8 +3571,7 @@ export async function POST(req: NextRequest) {
 
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { supabaseAdmin } from '@/lib/supabaseServer';
-import { generateAndStoreInvoice } from '@/lib/generateInvoice';
+import { markOrderPaid } from '@/lib/markOrderPaid';
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -3494,7 +3583,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Missing payment details.' }, { status: 400 });
   }
 
-  // ---- this signature check is what actually proves the payment is genuine ----
+  // this signature check is what actually proves the payment is genuine
   const expected = crypto
     .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!)
     .update(`${razorpay_order_id}|${razorpay_payment_id}`)
@@ -3504,41 +3593,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Payment verification failed.' }, { status: 400 });
   }
 
-  const supabase = supabaseAdmin();
+  try {
+    const result = await markOrderPaid(razorpay_order_id, razorpay_payment_id);
 
-  const { data: order } = await supabase
-    .from('orders')
-    .update({ payment_status: 'paid', razorpay_payment_id })
-    .eq('razorpay_order_id', razorpay_order_id)
-    .select('id, order_number, coupon_code')
-    .maybeSingle();
-
-  if (order?.coupon_code) {
-    const { data: coupon } = await supabase
-      .from('coupons')
-      .select('used_count')
-      .eq('code', order.coupon_code)
-      .maybeSingle();
-    if (coupon) {
-      await supabase
-        .from('coupons')
-        .update({ used_count: coupon.used_count + 1 })
-        .eq('code', order.coupon_code);
+    if (result.status === 'not_found') {
+      return NextResponse.json({ success: false, error: 'Order not found.' }, { status: 404 });
     }
+    if (result.status === 'amount_mismatch') {
+      return NextResponse.json({ success: false, error: 'Payment amount mismatch.' }, { status: 400 });
+    }
+
+    return NextResponse.json({ success: true, order_number: result.orderNumber });
+  } catch (err) {
+    console.error('verify-payment failed:', err);
+    return NextResponse.json({ success: false, error: 'Could not record the payment.' }, { status: 500 });
   }
-
-  if (order?.id) {
-   try {
-     await generateAndStoreInvoice(order.id);
-   } catch (err) {
-     console.error('Invoice generation failed for order', order.id, err);
-     // don't fail the payment response just because the invoice failed —
-     // you can regenerate it later by calling generateAndStoreInvoice(order.id) again
-   }
- }
-
-
-  return NextResponse.json({ success: true, order_number: order?.order_number || null });
 }
 
 
@@ -4342,6 +4411,97 @@ export default function TrackOrderPage() {
             );
           })}
       </div>
+    </>
+  );
+}
+
+
+===== FILE: src\components\AdminSidebar.tsx =====
+
+'use client';
+import { useState } from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import SignOutButton from '@/components/SignOutButton';
+
+const GROUPS = [
+  {
+    title: 'Sales',
+    items: [
+      { href: '/admin/dashboard', label: 'Orders', icon: '📦', also: ['/admin/orders'] },
+      { href: '/admin/analytics', label: 'Analytics', icon: '📊', also: [] },
+      { href: '/admin/invoices', label: 'Invoices', icon: '🧾', also: [] },
+    ],
+  },
+  {
+    title: 'Catalog',
+    items: [
+      { href: '/admin/coupons', label: 'Coupons', icon: '🏷️', also: [] },
+      { href: '/admin/shipping', label: 'Shipping', icon: '🚚', also: [] },
+    ],
+  },
+  {
+    title: 'Partners',
+    items: [
+      { href: '/admin/influencers', label: 'Influencers', icon: '🤝', also: [] },
+      { href: '/admin/payouts', label: 'Payouts', icon: '💸', also: [] },
+    ],
+  },
+];
+
+export default function AdminSidebar({ userName }: { userName: string }) {
+  const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+
+  const isActive = (item: { href: string; also: string[] }) =>
+    [item.href, ...item.also].some((p) => pathname.startsWith(p));
+
+  return (
+    <>
+      <div className="admin-mobilebar">
+        <span className="brand">MONTEFLOUR</span>
+        <button type="button" onClick={() => setOpen(!open)}>
+          {open ? 'Close' : 'Menu'}
+        </button>
+      </div>
+
+      <aside className={`admin-sidebar ${open ? 'open' : ''}`}>
+        <div className="sidebar-brand">
+          <div className="sidebar-brand-name">MONTEFLOUR</div>
+          <div className="sidebar-brand-sub">Admin Portal</div>
+        </div>
+
+        <div className="sidebar-user">
+          <div className="sidebar-avatar">{userName.charAt(0)}</div>
+          <div>
+            <div className="sidebar-user-name">{userName}</div>
+            <div className="sidebar-user-role">ADMIN</div>
+          </div>
+        </div>
+
+        <nav className="sidebar-nav">
+          {GROUPS.map((group) => (
+            <div key={group.title}>
+              <div className="sidebar-group-title">{group.title}</div>
+              {group.items.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setOpen(false)}
+                  className={`sidebar-link ${isActive(item) ? 'active' : ''}`}
+                >
+                  <span className="sidebar-icon">{item.icon}</span>
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+          ))}
+        </nav>
+
+        <div className="sidebar-footer">
+          <SignOutButton />
+        </div>
+      </aside>
     </>
   );
 }
@@ -5791,6 +5951,96 @@ export async function generateInvoicePdf(data: InvoiceData): Promise<Uint8Array>
   draw("This is a computer-generated invoice and does not require a signature.", left, 8);
 
   return doc.save();
+}
+
+
+===== FILE: src\lib\markOrderPaid.ts =====
+
+import { supabaseAdmin } from '@/lib/supabaseServer';
+import { generateAndStoreInvoice } from '@/lib/generateInvoice';
+
+type MarkPaidResult =
+  | { status: 'paid_now'; orderNumber: string }
+  | { status: 'already_paid'; orderNumber: string }
+  | { status: 'not_found' }
+  | { status: 'amount_mismatch' };
+
+// Safe to call many times for the same payment. Only the FIRST call actually
+// changes the order, counts the coupon and makes the invoice.
+export async function markOrderPaid(
+  razorpayOrderId: string,
+  razorpayPaymentId: string,
+  paidAmountPaise?: number
+): Promise<MarkPaidResult> {
+  const supabase = supabaseAdmin();
+
+  const { data: order, error } = await supabase
+    .from('orders')
+    .select('id, order_number, coupon_code, payment_status, total_amount')
+    .eq('razorpay_order_id', razorpayOrderId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!order) return { status: 'not_found' };
+  if (order.payment_status === 'paid') {
+    return { status: 'already_paid', orderNumber: order.order_number };
+  }
+
+  // Safety check: the amount Razorpay received must match what we expected.
+  if (
+    paidAmountPaise !== undefined &&
+    Math.round(Number(order.total_amount) * 100) !== paidAmountPaise
+  ) {
+    console.error(
+      `Amount mismatch for order ${order.order_number}: expected ${Math.round(Number(order.total_amount) * 100)} paise, Razorpay says ${paidAmountPaise}`
+    );
+    return { status: 'amount_mismatch' };
+  }
+
+  const update: Record<string, any> = {
+    payment_status: 'paid',
+    razorpay_payment_id: razorpayPaymentId,
+  };
+  // If the dashboard cleanup had wrongly marked this order failed + cancelled,
+  // bring it back to a normal new order.
+  if (order.payment_status === 'failed') update.fulfillment_status = 'new';
+
+  // ".neq('payment_status','paid')" means: only change it if nobody else
+  // has already marked it paid a split second ago.
+  const { data: updated, error: updateError } = await supabase
+    .from('orders')
+    .update(update)
+    .eq('id', order.id)
+    .neq('payment_status', 'paid')
+    .select('id')
+    .maybeSingle();
+
+  if (updateError) throw new Error(updateError.message);
+  if (!updated) return { status: 'already_paid', orderNumber: order.order_number };
+
+  // From here on, only the one call that really flipped the order runs.
+  if (order.coupon_code) {
+    const { data: coupon } = await supabase
+      .from('coupons')
+      .select('used_count')
+      .eq('code', order.coupon_code)
+      .maybeSingle();
+    if (coupon) {
+      await supabase
+        .from('coupons')
+        .update({ used_count: coupon.used_count + 1 })
+        .eq('code', order.coupon_code);
+    }
+  }
+
+  try {
+    await generateAndStoreInvoice(order.id);
+  } catch (err) {
+    // Don't fail the payment just because the invoice failed.
+    console.error('Invoice generation failed for order', order.id, err);
+  }
+
+  return { status: 'paid_now', orderNumber: order.order_number };
 }
 
 
