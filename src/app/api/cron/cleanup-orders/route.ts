@@ -104,6 +104,12 @@ export async function GET(req: NextRequest) {
     markedFailed++;
   }
 
+  // Housekeeping: forget rate-limit counters older than a day.
+  await supabase
+    .from('rate_limits')
+    .delete()
+    .lt('window_start', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+
   const summary = { checked: (stale || []).length, recovered, markedFailed, skipped };
   console.log('Cleanup finished:', JSON.stringify(summary));
   return NextResponse.json({ ok: true, ...summary });

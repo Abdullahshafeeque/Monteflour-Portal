@@ -1,7 +1,15 @@
+import { isRateLimited } from '@/lib/rateLimit';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 
 export async function POST(req: NextRequest) {
+  if (await isRateLimited(req, 'apply-coupon', 20, 600)) {
+    return NextResponse.json(
+      { valid: false, message: 'Too many attempts. Please wait a few minutes and try again.' },
+      { status: 429 }
+    );
+  }
+
   const body = await req.json();
   const cleanCode = String(body.code || '').trim().toUpperCase();
   const sub = Number(body.subtotal) || 0;
