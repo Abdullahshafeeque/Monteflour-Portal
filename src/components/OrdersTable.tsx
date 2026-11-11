@@ -14,6 +14,17 @@ const PERIODS = [
   { key: 'custom', label: 'Custom Range' },
 ] as const;
 
+const STATUS_FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'new', label: 'New' },
+  { key: 'packed', label: 'Packed' },
+  { key: 'shipped', label: 'Shipped' },
+  { key: 'delivered', label: 'Delivered' },
+  { key: 'cancelled', label: 'Cancelled' },
+] as const;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 function getPeriodStart(key: string): number | null {
   const now = new Date();
   if (key === 'day') {
@@ -46,11 +57,22 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
   const [page, setPage] = useState(1);
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
+  const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]['key']>('all');
+  const [ageMode, setAgeMode] = useState<'any' | 'more' | 'less'>('any');
+  const [ageDays, setAgeDays] = useState('');
   const [selected, setSelected] = useState<number[]>([]);
   const [bulkMsg, setBulkMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [isBulkPending, startBulk] = useTransition();
 
-  const filtered = useMemo(() => {
+  // The age filter only counts once a mode is chosen AND a number is typed.
+  const ageLimit = ageDays.trim() === '' ? null : Number(ageDays);
+  const ageActive = ageMode !== 'any' && ageLimit !== null && !Number.isNaN(ageLimit);
+  const filtersActive = statusFilter !== 'all' || ageActive;
+
+  // Step 1: tab + time period + age. (Status is applied after, so the status
+  // buttons can show how many orders each one would give.)
+  const baseFiltered = useMemo(() => {
+    const now = Date.now();
     return orders.filter((o) => {
       const matchesTab = tab === 'pending'
         ? (o.payment_status === 'pending' || o.payment_status === 'failed')
@@ -60,23 +82,48 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
       if (period === 'custom') {
         if (customFrom && orderTime < new Date(customFrom).setHours(0, 0, 0, 0)) return false;
         if (customTo && orderTime > new Date(customTo).setHours(23, 59, 59, 999)) return false;
-        return true;
+      } else {
+        const cutoff = getPeriodStart(period);
+        if (cutoff && orderTime < cutoff) return false;
       }
-      const cutoff = getPeriodStart(period);
-      if (cutoff && orderTime < cutoff) return false;
+      if (ageActive) {
+        const ageInDays = (now - orderTime) / DAY_MS;
+        if (ageMode === 'more' && !(ageInDays > (ageLimit as number))) return false;
+        if (ageMode === 'less' && !(ageInDays < (ageLimit as number))) return false;
+      }
       return true;
     });
-  }, [orders, tab, period, customFrom, customTo]);
+  }, [orders, tab, period, customFrom, customTo, ageMode, ageLimit, ageActive]);
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      all: baseFiltered.length, new: 0, packed: 0, shipped: 0, delivered: 0, cancelled: 0,
+    };
+    for (const o of baseFiltered) {
+      const s = o.fulfillment_status || 'new';
+      counts[s] = (counts[s] || 0) + 1;
+    }
+    return counts;
+  }, [baseFiltered]);
+
+  // Step 2: the status button on top of that.
+  const filtered = useMemo(
+    () =>
+      statusFilter === 'all'
+        ? baseFiltered
+        : baseFiltered.filter((o) => (o.fulfillment_status || 'new') === statusFilter),
+    [baseFiltered, statusFilter]
+  );
 
   useEffect(() => {
     setPage(1);
-  }, [tab, period]);
+  }, [tab, period, statusFilter, ageMode, ageDays]);
 
   // Forget any ticked boxes whenever the visible list changes, so you can
   // never mark orders that are no longer on screen.
   useEffect(() => {
     setSelected([]);
-  }, [tab, period, page, customFrom, customTo]);
+  }, [tab, period, page, customFrom, customTo, statusFilter, ageMode, ageDays]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -96,6 +143,12 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
   function toggleAll() {
     setBulkMsg(null);
     setSelected(allSelected ? [] : selectableIds);
+  }
+
+  function clearFilters() {
+    setStatusFilter('all');
+    setAgeMode('any');
+    setAgeDays('');
   }
 
   function handleMarkDelivered() {
@@ -122,7 +175,13 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
   const pendingDelivery = filtered.filter(
     (o) => (o.fulfillment_status || 'new') !== 'delivered' && o.fulfillment_status !== 'cancelled'
   ).length;
-  const allDelivered = tab === 'paid' && activeOrders.length > 0 && pendingDelivery === 0;
+
+  // "All Orders Delivered" is judged on the whole period, not on the status button.
+  const baseActive = baseFiltered.filter((o) => o.fulfillment_status !== 'cancelled');
+  const basePendingDelivery = baseActive.filter(
+    (o) => (o.fulfillment_status || 'new') !== 'delivered'
+  ).length;
+  const allDelivered = tab === 'paid' && baseActive.length > 0 && basePendingDelivery === 0;
 
   return (
     <>
@@ -152,6 +211,47 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
         </div>
       )}
 
+      <div className="period-filters" style={{ marginBottom: '1rem' }}>
+        <span className="filter-label">Status</span>
+        {STATUS_FILTERS.map((s) => (
+          <button
+            key={s.key}
+            className={`period-btn ${statusFilter === s.key ? 'active' : ''}`}
+            onClick={() => setStatusFilter(s.key)}
+          >
+            {s.label} ({statusCounts[s.key] ?? 0})
+          </button>
+        ))}
+      </div>
+
+      <div className="age-filter">
+        <span className="filter-label">Ordered</span>
+        <select value={ageMode} onChange={(e) => setAgeMode(e.target.value as 'any' | 'more' | 'less')}>
+          <option value="any">any time</option>
+          <option value="more">more than</option>
+          <option value="less">less than</option>
+        </select>
+        {ageMode !== 'any' && (
+          <>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={ageDays}
+              onChange={(e) => setAgeDays(e.target.value)}
+              placeholder="days"
+            />
+            <span className="filter-label">days ago</span>
+          </>
+        )}
+        {filtersActive && (
+          <button type="button" className="period-btn" onClick={clearFilters}>Clear filters</button>
+        )}
+        <span className="filter-count">
+          {filtered.length} order{filtered.length === 1 ? '' : 's'}
+        </span>
+      </div>
+
       {tab === 'paid' && (selectableIds.length > 0 || bulkMsg) && (
         <div className="bulk-bar">
           <span>{selectedIds.length} selected</span>
@@ -170,7 +270,7 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
       )}
 
       {filtered.length === 0 ? (
-        <div className="empty">No orders in this period.</div>
+        <div className="empty">No orders match the current filters.</div>
       ) : (
         <table className="admin-table">
           <thead>
