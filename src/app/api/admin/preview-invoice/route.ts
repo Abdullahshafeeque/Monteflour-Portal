@@ -10,8 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServerClient } from '@/lib/supabaseServer';
 import { calculateGstInclusive } from '@/lib/gst';
 import { generateInvoicePdf } from '@/lib/invoice-pdf';
-
-const ADMIN_EMAIL = 'abdshafeeque@gmail.com';
+import { isAdmin } from '@/lib/roles';
 
 // TODO: keep these in sync with the real values in generateInvoice.ts
 const SELLER = {
@@ -26,8 +25,8 @@ const UNIT_PRICE = Number(process.env.NEXT_PUBLIC_PRODUCT_PRICE || 500);
 export async function GET(req: NextRequest) {
   const authClient = supabaseServerClient();
   const { data: { user } } = await authClient.auth.getUser();
-  if (!user || user.email !== ADMIN_EMAIL) {
-    return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 });
+  if (!isAdmin(user)) {
+        return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 });
   }
 
   // Change ?state=Maharashtra in the URL to preview an inter-state (IGST) invoice.

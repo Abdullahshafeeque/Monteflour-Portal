@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-
-const ADMIN_EMAIL = "abdshafeeque@gmail.com";
+import { isAdmin } from '@/lib/roles';
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request: { headers: request.headers } });
@@ -29,15 +28,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  const isAdmin = session.user.email === ADMIN_EMAIL;
+  const userIsAdmin = isAdmin(session.user);
 
-  if (isAdminRoute && !isAdmin) {
+  if (isAdminRoute && !userIsAdmin) {
     const url = request.nextUrl.clone();
     url.pathname = '/influencer/dashboard';
     return NextResponse.redirect(url);
   }
 
-  if (isInfluencerRoute && isAdmin) {
+  if (isInfluencerRoute && userIsAdmin) {
     const url = request.nextUrl.clone();
     url.pathname = '/admin/dashboard';
     return NextResponse.redirect(url);

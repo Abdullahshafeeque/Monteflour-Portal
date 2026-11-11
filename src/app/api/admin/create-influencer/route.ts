@@ -1,14 +1,13 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, supabaseServerClient } from '@/lib/supabaseServer';
-
-const ADMIN_EMAIL = 'abdshafeeque@gmail.com';
+import { isAdmin } from '@/lib/roles';
 
 export async function POST(req: NextRequest) {
   // Reject the request immediately unless it's genuinely coming from a
   // logged-in admin session — this endpoint previously had no auth check at all.
   const authClient = supabaseServerClient();
   const { data: { user } } = await authClient.auth.getUser();
-  if (!user || user.email !== ADMIN_EMAIL) {
+  if (!isAdmin(user)) {
     return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 });
   }
 

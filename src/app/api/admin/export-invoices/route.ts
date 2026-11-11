@@ -6,15 +6,15 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, supabaseServerClient } from '@/lib/supabaseServer';
+import { isAdmin } from '@/lib/roles';
 
-const ADMIN_EMAIL = 'abdshafeeque@gmail.com';
 const PRODUCT_NAME = process.env.NEXT_PUBLIC_PRODUCT_NAME || 'Monteflour';
 
 export async function GET(req: NextRequest) {
   // Same auth check used by the other protected /api/admin/* routes.
   const authClient = supabaseServerClient();
   const { data: { user } } = await authClient.auth.getUser();
-  if (!user || user.email !== ADMIN_EMAIL) {
+  if (!isAdmin(user)) {
     return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 });
   }
 

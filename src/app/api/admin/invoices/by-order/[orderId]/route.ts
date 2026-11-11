@@ -5,16 +5,15 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, supabaseServerClient } from '@/lib/supabaseServer';
+import { isAdmin } from '@/lib/roles';
 
 export const dynamic = 'force-dynamic';
-
-const ADMIN_EMAIL = 'abdshafeeque@gmail.com';
 
 export async function GET(req: NextRequest, { params }: { params: { orderId: string } }) {
   const authClient = supabaseServerClient();
   const { data: { user } } = await authClient.auth.getUser();
-  if (!user || user.email !== ADMIN_EMAIL) {
-    return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 });
+  if (!isAdmin(user)) {
+        return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 });
   }
 
   const orderId = Number(params.orderId);
