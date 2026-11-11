@@ -27,10 +27,30 @@ export async function updateTracking(orderId: number, courier: string, trackingN
   if (!(await getAdminUser())) return { error: 'Unauthorized' };
 
   const supabase = supabaseAdmin();
-  const { error } = await supabase
-    .from('orders')
-    .update({ courier: courier || null, tracking_number: trackingNumber || null })
-    .eq('id', orderId);
+  const update: Record<string, any> = {
+    courier: courier || null,
+    tracking_number: trackingNumber || null,
+  };
+
+  // A tracking number means the parcel has been handed to the courier, so move
+  // the order to "shipped" automatically. Only from new/packed, and only if paid:
+  // shipped orders keep their original shipped time, and delivered or cancelled
+  // orders are never touched.
+  if (trackingNumber) {
+    const { data: order } = await supabase
+      .from('orders')
+      .select('fulfillment_status, payment_status')
+      .eq('id', orderId)
+      .maybeSingle();
+
+    const current = order?.fulfillment_status || 'new';
+    if (order?.payment_status === 'paid' && (current === 'new' || current === 'packed')) {
+      update.fulfillment_status = 'shipped';
+      update.shipped_at = new Date().toISOString();
+    }
+  }
+
+  const { error } = await supabase.from('orders').update(update).eq('id', orderId);
   if (error) return { error: error.message };
 
   revalidatePath('/admin/dashboard');

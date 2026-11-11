@@ -62,7 +62,7 @@ export default async function OrderDetailPage({ params }: { params: { id: string
         <div className="admin-card">
           <h3>Status</h3>
           <p>Payment: <span className={`badge ${order.payment_status}`}>{order.payment_status}</span></p>
-          <p>Fulfillment: <StatusSelect orderId={order.id} currentStatus={order.fulfillment_status || 'new'} /></p>
+          <p>Fulfillment: <StatusSelect key={order.fulfillment_status || 'new'} orderId={order.id} currentStatus={order.fulfillment_status || 'new'} /></p>
           <p>Placed: {new Date(order.created_at).toLocaleString('en-IN')}</p>
           <TrackingForm orderId={order.id} currentCourier={order.courier} currentTrackingNumber={order.tracking_number} />
         </div>
