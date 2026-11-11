@@ -1,8 +1,10 @@
 'use server';
 import { revalidatePath } from 'next/cache';
 import { supabaseAdmin } from '@/lib/supabaseServer';
+import { requireAdmin } from '@/lib/requireAdmin';
 
 export async function addCoupon(formData: FormData) {
+  await requireAdmin();
   const code = String(formData.get('code') || '').trim().toUpperCase();
   const discount_type = formData.get('discount_type') === 'flat' ? 'flat' : 'percent';
   const discount_value = Number(formData.get('discount_value') || 0);
@@ -28,18 +30,21 @@ export async function addCoupon(formData: FormData) {
 }
 
 export async function toggleCoupon(id: number, active: boolean) {
+  await requireAdmin();
   const supabase = supabaseAdmin();
   await supabase.from('coupons').update({ active: !active }).eq('id', id);
   revalidatePath('/admin/coupons');
 }
 
 export async function deleteCoupon(id: number) {
+  await requireAdmin();
   const supabase = supabaseAdmin();
   await supabase.from('coupons').delete().eq('id', id);
   revalidatePath('/admin/coupons');
 }
 
 export async function createInfluencer(prevState: any, formData: FormData) {
+  await requireAdmin();
   const name = String(formData.get('name'));
   const email = String(formData.get('email'));
   const password = String(formData.get('password'));
@@ -86,7 +91,9 @@ export async function createInfluencer(prevState: any, formData: FormData) {
   revalidatePath('/admin/influencers');
   return { error: null, success: true };
 }
+
 export async function deleteInfluencer(id: string) {
+  await requireAdmin();
   const supabase = supabaseAdmin();
 
   // Detach their coupon(s) rather than deleting the coupon itself,
@@ -125,7 +132,9 @@ export async function deleteInfluencer(id: string) {
 
   revalidatePath('/admin/influencers');
 }
+
 export async function upsertShippingRule(formData: FormData) {
+  await requireAdmin();
   const state = String(formData.get('state') || '').trim();
   const shipping_fee = Number(formData.get('shipping_fee') || 0);
   const free_shipping_above = Number(formData.get('free_shipping_above') || 0);
@@ -141,6 +150,7 @@ export async function upsertShippingRule(formData: FormData) {
 }
 
 export async function deleteShippingRule(id: number) {
+  await requireAdmin();
   const supabase = supabaseAdmin();
   await supabase.from('shipping_rules').delete().eq('id', id);
   revalidatePath('/admin/shipping');

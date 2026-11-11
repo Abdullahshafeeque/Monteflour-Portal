@@ -1,10 +1,12 @@
 'use server';
 import { revalidatePath } from 'next/cache';
 import { supabaseAdmin } from '@/lib/supabaseServer';
+import { getAdminUser } from '@/lib/requireAdmin';
 
 const VALID_STATUSES = ['new', 'packed', 'shipped', 'delivered', 'cancelled'];
 
 export async function updateFulfillmentStatus(orderId: number, status: string) {
+  if (!(await getAdminUser())) return { error: 'Unauthorized' };
   if (!VALID_STATUSES.includes(status)) return { error: 'Invalid status' };
 
   const supabase = supabaseAdmin();
@@ -20,7 +22,10 @@ export async function updateFulfillmentStatus(orderId: number, status: string) {
   revalidatePath('/admin/dashboard');
   return { error: null };
 }
+
 export async function updateTracking(orderId: number, courier: string, trackingNumber: string) {
+  if (!(await getAdminUser())) return { error: 'Unauthorized' };
+
   const supabase = supabaseAdmin();
   const { error } = await supabase
     .from('orders')

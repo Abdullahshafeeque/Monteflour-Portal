@@ -1,3 +1,4 @@
+import { requireAdmin } from '@/lib/requireAdmin';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import { revalidatePath } from 'next/cache';
 
@@ -17,6 +18,7 @@ export default async function PayoutsPage() {
 
   async function markAsPaid(id: number) {
     'use server';
+    await requireAdmin();
     const adminClient = supabaseAdmin();
     await adminClient.from('payout_requests').update({ status: 'paid' }).eq('id', id);
     revalidatePath('/admin/payouts');
