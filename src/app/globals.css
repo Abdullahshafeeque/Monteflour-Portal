@@ -267,3 +267,6 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--sky-deep);border
   .admin-sidebar,.admin-mobilebar{display:none !important;}
   .admin-shell{display:block;}
 }
+/* ---------- bulk select on orders table ---------- */
+.row-check{width:18px;height:18px;padding:0;cursor:pointer;accent-color:var(--navy);}
+.bulk-bar{display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;font-size:.85rem;font-weight:600;color:var(--navy);}

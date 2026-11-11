@@ -1,7 +1,8 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import StatusSelect from '@/components/StatusSelect';
+import { markOrdersDelivered } from '@/app/admin/orders/actions';
 
 const PERIODS = [
   { key: 'day', label: 'Today' },
@@ -45,6 +46,9 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
   const [page, setPage] = useState(1);
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
+  const [selected, setSelected] = useState<number[]>([]);
+  const [bulkMsg, setBulkMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [isBulkPending, startBulk] = useTransition();
 
   const filtered = useMemo(() => {
     return orders.filter((o) => {
@@ -68,8 +72,49 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
     setPage(1);
   }, [tab, period]);
 
+  // Forget any ticked boxes whenever the visible list changes, so you can
+  // never mark orders that are no longer on screen.
+  useEffect(() => {
+    setSelected([]);
+  }, [tab, period, page, customFrom, customTo]);
+
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  // Only paid orders that are currently "shipped" can be marked delivered in bulk.
+  const selectableIds = paginated
+    .filter((o) => o.payment_status === 'paid' && o.fulfillment_status === 'shipped')
+    .map((o) => o.id as number);
+  const selectedIds = selected.filter((id) => selectableIds.includes(id));
+  const allSelected = selectableIds.length > 0 && selectedIds.length === selectableIds.length;
+
+  function toggleOne(id: number) {
+    setBulkMsg(null);
+    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function toggleAll() {
+    setBulkMsg(null);
+    setSelected(allSelected ? [] : selectableIds);
+  }
+
+  function handleMarkDelivered() {
+    if (selectedIds.length === 0) return;
+    const n = selectedIds.length;
+    if (!window.confirm(`Mark ${n} order${n === 1 ? '' : 's'} as delivered?`)) return;
+    startBulk(async () => {
+      const result = await markOrdersDelivered(selectedIds);
+      if (result.error) {
+        setBulkMsg({ text: result.error, ok: false });
+        return;
+      }
+      setSelected([]);
+      setBulkMsg({
+        text: `${result.updated} order${result.updated === 1 ? '' : 's'} marked as delivered.`,
+        ok: true,
+      });
+    });
+  }
 
   const activeOrders = filtered.filter((o) => o.fulfillment_status !== 'cancelled');
   const totalValue = activeOrders.reduce((sum, o) => sum + Number(o.total_amount), 0);
@@ -107,12 +152,41 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
         </div>
       )}
 
+      {tab === 'paid' && (selectableIds.length > 0 || bulkMsg) && (
+        <div className="bulk-bar">
+          <span>{selectedIds.length} selected</span>
+          <button
+            type="button"
+            className="btn-submit"
+            onClick={handleMarkDelivered}
+            disabled={selectedIds.length === 0 || isBulkPending}
+          >
+            {isBulkPending ? 'Updating…' : 'Mark selected as delivered'}
+          </button>
+          {bulkMsg && (
+            <span style={{ color: bulkMsg.ok ? '#2E8B57' : '#C0392B' }}>{bulkMsg.text}</span>
+          )}
+        </div>
+      )}
+
       {filtered.length === 0 ? (
         <div className="empty">No orders in this period.</div>
       ) : (
         <table className="admin-table">
           <thead>
             <tr>
+              {tab === 'paid' && (
+                <th style={{ width: 40 }}>
+                  <input
+                    type="checkbox"
+                    className="row-check"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    disabled={selectableIds.length === 0}
+                    aria-label="Select all shipped orders"
+                  />
+                </th>
+              )}
               <th>Order #</th><th>Customer</th><th>Phone</th><th>City / State</th>
               <th>Qty</th><th>Coupon</th><th>Total</th><th>Payment</th><th>Attempts</th><th>Fulfillment</th><th>Date</th><th>Invoice</th>
             </tr>
@@ -120,6 +194,19 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
           <tbody>
             {paginated.map((o: any) => (
               <tr key={o.id}>
+                {tab === 'paid' && (
+                  <td>
+                    {o.payment_status === 'paid' && o.fulfillment_status === 'shipped' && (
+                      <input
+                        type="checkbox"
+                        className="row-check"
+                        checked={selected.includes(o.id)}
+                        onChange={() => toggleOne(o.id)}
+                        aria-label={`Select order ${o.order_number}`}
+                      />
+                    )}
+                  </td>
+                )}
                 <td><Link href={`/admin/orders/${o.id}`}>{o.order_number}</Link></td>
                 <td>{o.customer_name}<br /><small style={{ color: '#5A7A94' }}>{o.email}</small></td>
                 <td>{o.phone}</td>
@@ -129,15 +216,21 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
                 <td>₹{Number(o.total_amount).toFixed(2)}</td>
                 <td><span className={`badge ${o.payment_status}`}>{o.payment_status}</span></td>
                 <td>{o.attempt_count && o.attempt_count > 1 ? `${o.attempt_count}x` : '—'}</td>
-                <td><StatusSelect orderId={o.id} currentStatus={o.fulfillment_status || 'new'} /></td>
+                <td>
+                  <StatusSelect
+                    key={`${o.id}-${o.fulfillment_status || 'new'}`}
+                    orderId={o.id}
+                    currentStatus={o.fulfillment_status || 'new'}
+                  />
+                </td>
                 <td>{new Date(o.created_at).toLocaleString('en-IN')}</td>
-              <td>
-                 {o.payment_status === 'paid' && (
-                   <a href={`/api/admin/invoices/by-order/${o.id}`} target="_blank" rel="noopener noreferrer">
-                     View
-                   </a>
-                 )}
-               </td>
+                <td>
+                  {o.payment_status === 'paid' && (
+                    <a href={`/api/admin/invoices/by-order/${o.id}`} target="_blank" rel="noopener noreferrer">
+                      View
+                    </a>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

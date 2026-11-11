@@ -57,3 +57,29 @@ export async function updateTracking(orderId: number, courier: string, trackingN
   revalidatePath(`/admin/orders/${orderId}`);
   return { error: null };
 }
+
+export async function markOrdersDelivered(orderIds: number[]) {
+  if (!(await getAdminUser())) return { error: 'Unauthorized', updated: 0 };
+
+  const ids = Array.from(new Set((orderIds || []).map(Number))).filter(
+    (n) => Number.isInteger(n) && n > 0
+  );
+  if (ids.length === 0) return { error: 'No orders selected.', updated: 0 };
+  if (ids.length > 200) return { error: 'Please select 200 orders or fewer at a time.', updated: 0 };
+
+  const supabase = supabaseAdmin();
+
+  // Only paid orders that are currently "shipped" can be marked delivered this way.
+  const { data, error } = await supabase
+    .from('orders')
+    .update({ fulfillment_status: 'delivered', delivered_at: new Date().toISOString() })
+    .in('id', ids)
+    .eq('payment_status', 'paid')
+    .eq('fulfillment_status', 'shipped')
+    .select('id');
+
+  if (error) return { error: error.message, updated: 0 };
+
+  revalidatePath('/admin/dashboard');
+  return { error: null, updated: data?.length ?? 0 };
+}
