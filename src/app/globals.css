@@ -45,6 +45,13 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--sky-deep);border
 .pay-btn:disabled{opacity:.6;cursor:not-allowed;}
 .form-error{background:#fde8e8;color:#C0392B;padding:.8rem 1rem;border-radius:6px;font-size:.85rem;margin-bottom:1rem;}
 .secure-note{text-align:center;font-size:.75rem;color:var(--muted);margin-top:.9rem;}
+.confirm-overlay{position:fixed;inset:0;z-index:9999;background:rgba(27,58,92,.92);display:flex;align-items:center;justify-content:center;padding:1.5rem;}
+.confirm-box{background:var(--off-white);border-radius:12px;padding:2.2rem 1.8rem;max-width:380px;width:100%;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.25);}
+.confirm-spinner{width:54px;height:54px;margin:0 auto 1.2rem;border:5px solid var(--sky);border-top-color:var(--navy);border-radius:50%;animation:mf-spin .9s linear infinite;}
+.confirm-box h2{font-family:'Bebas Neue',sans-serif;font-size:1.7rem;letter-spacing:.04em;color:var(--navy);margin-bottom:.6rem;}
+.confirm-box p{font-size:.9rem;color:var(--text);font-weight:600;line-height:1.5;}
+.confirm-box .confirm-sub{font-weight:400;color:var(--muted);font-size:.8rem;margin-top:.5rem;}
+@keyframes mf-spin{to{transform:rotate(360deg);}}
 
 /* ---------- order success ---------- */
 .success-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:2rem;}

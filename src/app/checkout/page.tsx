@@ -34,6 +34,7 @@ export default function CheckoutPage() {
   });
   const [error, setError] = useState('');
   const [paying, setPaying] = useState(false);
+    const [confirming, setConfirming] = useState(false);
   const [razorpayReady, setRazorpayReady] = useState(false);
   const [shippingRule, setShippingRule] = useState<ShippingRule | null>({ shipping_fee: 90, free_shipping_above: 0 });
 
@@ -134,16 +135,23 @@ export default function CheckoutPage() {
         prefill: { name: data.name, email: data.email, contact: data.phone },
         theme: { color: '#1B3A5C' },
         handler: async function (response: any) {
-          const verifyRes = await fetch('/api/verify-payment', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(response),
-          });
-          const verifyData = await verifyRes.json();
-          if (verifyData.success) {
-            window.location.href = '/order-success?order=' + encodeURIComponent(verifyData.order_number);
-          } else {
-            setError('Payment could not be verified. If money was deducted, contact help@monteflour.com.');
+          setConfirming(true);
+          try {
+            const verifyRes = await fetch('/api/verify-payment', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(response),
+            });
+            const verifyData = await verifyRes.json();
+            if (verifyData.success) {
+              window.location.href = '/order-success?order=' + encodeURIComponent(verifyData.order_number);
+            } else {
+              setConfirming(false);
+              setError('Payment could not be verified. If money was deducted, contact help@monteflour.com.');
+            }
+          } catch {
+            setConfirming(false);
+            setError('Could not confirm your payment. If money was deducted, contact help@monteflour.com.');
           }
         },
         modal: {
@@ -164,6 +172,16 @@ export default function CheckoutPage() {
 
   return (
     <>
+      {confirming && (
+        <div className="confirm-overlay" role="alert" aria-live="assertive">
+          <div className="confirm-box">
+            <div className="confirm-spinner" />
+            <h2>Confirming your payment</h2>
+            <p>Please don&apos;t close, refresh or go back.</p>
+            <p className="confirm-sub">This takes a few seconds. Your order will be placed automatically.</p>
+          </div>
+        </div>
+      )}
       <Script
         src="https://checkout.razorpay.com/v1/checkout.js"
         strategy="afterInteractive"

@@ -903,12 +903,20 @@ probably also want to change the button text from "Buy on Amazon" to "Buy Now".
 }
 
 
+===== FILE: vercel.json =====
+
+{
+  "crons": [
+    { "path": "/api/cron/cleanup-orders", "schedule": "30 20 * * *" }
+  ]
+}
+
+
 ===== FILE: src\middleware.ts =====
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-
-const ADMIN_EMAIL = "abdshafeeque@gmail.com";
+import { isAdmin } from '@/lib/roles';
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request: { headers: request.headers } });
@@ -936,15 +944,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  const isAdmin = session.user.email === ADMIN_EMAIL;
+  const userIsAdmin = isAdmin(session.user);
 
-  if (isAdminRoute && !isAdmin) {
+  if (isAdminRoute && !userIsAdmin) {
     const url = request.nextUrl.clone();
     url.pathname = '/influencer/dashboard';
     return NextResponse.redirect(url);
   }
 
-  if (isInfluencerRoute && isAdmin) {
+  if (isInfluencerRoute && userIsAdmin) {
     const url = request.nextUrl.clone();
     url.pathname = '/admin/dashboard';
     return NextResponse.redirect(url);
@@ -1227,6 +1235,15 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--sky-deep);border
   .admin-sidebar,.admin-mobilebar{display:none !important;}
   .admin-shell{display:block;}
 }
+/* ---------- bulk select on orders table ---------- */
+.row-check{width:18px;height:18px;padding:0;cursor:pointer;accent-color:var(--navy);}
+.bulk-bar{display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;font-size:.85rem;font-weight:600;color:var(--navy);}
+/* ---------- orders table filters ---------- */
+.filter-label{font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--slate);align-self:center;margin-right:.3rem;}
+.age-filter{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:1.5rem;}
+.age-filter select{width:auto;padding:.4rem .7rem;font-size:.8rem;}
+.age-filter input{width:80px;padding:.4rem .6rem;font-size:.8rem;}
+.filter-count{margin-left:auto;font-size:.8rem;color:var(--muted);font-weight:600;}
 
 
 ===== FILE: src\app\layout.tsx =====
@@ -1267,8 +1284,10 @@ export default function Home() {
 'use server';
 import { revalidatePath } from 'next/cache';
 import { supabaseAdmin } from '@/lib/supabaseServer';
+import { requireAdmin } from '@/lib/requireAdmin';
 
 export async function addCoupon(formData: FormData) {
+  await requireAdmin();
   const code = String(formData.get('code') || '').trim().toUpperCase();
   const discount_type = formData.get('discount_type') === 'flat' ? 'flat' : 'percent';
   const discount_value = Number(formData.get('discount_value') || 0);
@@ -1294,18 +1313,21 @@ export async function addCoupon(formData: FormData) {
 }
 
 export async function toggleCoupon(id: number, active: boolean) {
+  await requireAdmin();
   const supabase = supabaseAdmin();
   await supabase.from('coupons').update({ active: !active }).eq('id', id);
   revalidatePath('/admin/coupons');
 }
 
 export async function deleteCoupon(id: number) {
+  await requireAdmin();
   const supabase = supabaseAdmin();
   await supabase.from('coupons').delete().eq('id', id);
   revalidatePath('/admin/coupons');
 }
 
 export async function createInfluencer(prevState: any, formData: FormData) {
+  await requireAdmin();
   const name = String(formData.get('name'));
   const email = String(formData.get('email'));
   const password = String(formData.get('password'));
@@ -1352,7 +1374,9 @@ export async function createInfluencer(prevState: any, formData: FormData) {
   revalidatePath('/admin/influencers');
   return { error: null, success: true };
 }
+
 export async function deleteInfluencer(id: string) {
+  await requireAdmin();
   const supabase = supabaseAdmin();
 
   // Detach their coupon(s) rather than deleting the coupon itself,
@@ -1391,7 +1415,9 @@ export async function deleteInfluencer(id: string) {
 
   revalidatePath('/admin/influencers');
 }
+
 export async function upsertShippingRule(formData: FormData) {
+  await requireAdmin();
   const state = String(formData.get('state') || '').trim();
   const shipping_fee = Number(formData.get('shipping_fee') || 0);
   const free_shipping_above = Number(formData.get('free_shipping_above') || 0);
@@ -1407,6 +1433,7 @@ export async function upsertShippingRule(formData: FormData) {
 }
 
 export async function deleteShippingRule(id: number) {
+  await requireAdmin();
   const supabase = supabaseAdmin();
   await supabase.from('shipping_rules').delete().eq('id', id);
   revalidatePath('/admin/shipping');
@@ -1417,21 +1444,20 @@ export async function deleteShippingRule(id: number) {
 
 import AdminSidebar from '@/components/AdminSidebar';
 import { supabaseServerClient } from '@/lib/supabaseServer';
+import { isAdmin, displayName } from '@/lib/roles';
 import { redirect } from 'next/navigation';
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = supabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const myAdminEmail = "abdshafeeque@gmail.com";
-
-  if (!user || user.email !== myAdminEmail) {
+  if (!isAdmin(user)) {
     redirect('/influencer/dashboard');
   }
 
   return (
     <div className="admin-shell">
-      <AdminSidebar userName="Abdullah Shafeeque" />
+      <AdminSidebar userName={displayName(user)} />
       <div className="admin-content">{children}</div>
     </div>
   );
@@ -1556,102 +1582,6 @@ export default async function CouponsPage() {
 }
 
 
-===== FILE: src\app\admin\create-influencer\route.ts =====
-
-import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabaseServer';
-
-export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const name = String(body.name || '').trim();
-  const email = String(body.email || '').trim().toLowerCase();
-  const password = String(body.password || '');
-  const commission_per_order = Number(body.commission_per_order) || 0;
-  const couponCode = String(body.coupon_code || '').trim().toUpperCase();
-
-  if (!name || !email || password.length < 6) {
-    return NextResponse.json(
-      { message: 'Name, email and a password of at least 6 characters are required.' },
-      { status: 400 }
-    );
-  }
-
-  const supabase = supabaseAdmin();
-
-  // 1. Create the auth user so the influencer can log in.
-  // influencers.id is the SAME uuid as auth.users.id in this schema.
-  const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-    user_metadata: { role: 'influencer' },
-  });
-
-  if (authError || !authUser?.user) {
-    return NextResponse.json(
-      { message: authError?.message || 'Failed to create login for influencer.' },
-      { status: 400 }
-    );
-  }
-
-  const userId = authUser.user.id;
-
-  // 2. Create the influencer profile row, reusing the auth user's id.
-  const { data: influencer, error: influencerError } = await supabase
-    .from('influencers')
-    .insert({
-      id: userId,
-      auth_user_id: userId,
-      name,
-      email,
-      commission_per_order,
-    })
-    .select()
-    .single();
-
-  if (influencerError) {
-    // Roll back the auth user if the profile insert failed
-    await supabase.auth.admin.deleteUser(userId);
-    return NextResponse.json({ message: influencerError.message }, { status: 400 });
-  }
-
-  // 3. Optionally link an existing coupon to this influencer
-  if (couponCode) {
-    const { error: updateError, count } = await supabase
-      .from('coupons')
-      .update({ influencer_id: influencer.id }, { count: 'exact' })
-      .eq('code', couponCode);
-
-    if (updateError) {
-      return NextResponse.json(
-        { message: `Influencer created, but coupon linking failed: ${updateError.message}` },
-        { status: 207 }
-      );
-    }
-
-    // No existing coupon had this code, so create a new one for this influencer.
-    if (!count) {
-      const { error: insertError } = await supabase.from('coupons').insert({
-        code: couponCode,
-        discount_type: 'percent',
-        discount_value: 10,
-        influencer_id: influencer.id,
-        active: true,
-      });
-
-      if (insertError) {
-        return NextResponse.json(
-          { message: `Influencer created, but coupon linking failed: ${insertError.message}` },
-          { status: 207 }
-        );
-      }
-    }
-  }
-
-  return NextResponse.json({ success: true, influencer });
-}
-
-
 ===== FILE: src\app\admin\dashboard\page.tsx =====
 
 import OrdersTable from '@/components/OrdersTable';
@@ -1661,38 +1591,6 @@ export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
   const supabase = supabaseAdmin();
-
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const { data: stalePending } = await supabase
-    .from('orders')
-    .select('id, phone, created_at')
-    .eq('payment_status', 'pending')
-    .lt('created_at', oneHourAgo);
-
-  for (const stale of stalePending || []) {
-    const staleTime = new Date(stale.created_at).getTime();
-    const windowStart = new Date(staleTime - 60 * 60 * 1000).toISOString();
-    const windowEnd = new Date(staleTime + 60 * 60 * 1000).toISOString();
-
-    const { data: match } = await supabase
-      .from('orders')
-      .select('id')
-      .eq('phone', stale.phone)
-      .eq('payment_status', 'paid')
-      .gte('created_at', windowStart)
-      .lte('created_at', windowEnd)
-      .limit(1)
-      .maybeSingle();
-
-    if (match) {
-      await supabase.from('orders').delete().eq('id', stale.id);
-    } else {
-      await supabase
-        .from('orders')
-        .update({ payment_status: 'failed', fulfillment_status: 'cancelled' })
-        .eq('id', stale.id);
-    }
-  }
 
   const { data: orders } = await supabase
     .from('orders')
@@ -1985,255 +1883,6 @@ export default function DeleteInfluencerButton({ id, name }: { id: string; name:
 }
 
 
-===== FILE: src\app\admin\influencers\influencer_detail_page.tsx =====
-
-import { supabaseAdmin } from '@/lib/supabaseServer';
-import Link from 'next/link';
-import { notFound } from 'next/navigation';
-
-export const dynamic = 'force-dynamic';
-
-type DayStat = {
-  date: string;
-  orders: number;
-  paidOrders: number;
-  revenue: number;
-  commission: number;
-};
-
-export default async function InfluencerDetailPage({ params }: { params: { id: string } }) {
-  const supabase = supabaseAdmin();
-
-  const { data: influencer } = await supabase
-    .from('influencers')
-    .select('*, coupons(code, active, discount_type, discount_value, used_count)')
-    .eq('id', params.id)
-    .maybeSingle();
-
-  if (!influencer) return notFound();
-
-  const couponCodes = (influencer.coupons || []).map((c: any) => c.code);
-
-  // All orders that used any of this influencer's coupon codes
-  const { data: orders } = couponCodes.length
-    ? await supabase
-        .from('orders')
-        .select('*')
-        .in('coupon_code', couponCodes)
-        .order('created_at', { ascending: false })
-    : { data: [] as any[] };
-
-  const allOrders = orders || [];
-  const paidOrders = allOrders.filter((o: any) => o.payment_status === 'paid');
-  const failedOrders = allOrders.filter((o: any) => o.payment_status === 'failed');
-  const pendingOrders = allOrders.filter((o: any) => o.payment_status === 'pending');
-
-  const commissionPerOrder = Number(influencer.commission_per_order || 0);
-  const totalRevenue = paidOrders.reduce((sum: number, o: any) => sum + Number(o.total_amount || 0), 0);
-  const totalDiscountGiven = paidOrders.reduce((sum: number, o: any) => sum + Number(o.discount_amount || 0), 0);
-  const totalCommissionEarned = paidOrders.length * commissionPerOrder;
-
-  // Payout history
-  const { data: payouts } = await supabase
-    .from('payout_requests')
-    .select('*')
-    .eq('influencer_id', params.id)
-    .order('created_at', { ascending: false });
-
-  const allPayouts = payouts || [];
-  const totalPaidOut = allPayouts.filter((p: any) => p.status === 'paid').reduce((s: number, p: any) => s + Number(p.amount), 0);
-  const totalPendingPayout = allPayouts.filter((p: any) => p.status === 'pending').reduce((s: number, p: any) => s + Number(p.amount), 0);
-  const availableBalance = totalCommissionEarned - totalPaidOut - totalPendingPayout;
-
-  // Day-by-day breakdown (based on paid orders' created_at date, in local date form)
-  const dayMap = new Map<string, DayStat>();
-  for (const o of allOrders) {
-    const d = new Date(o.created_at);
-    const key = d.toISOString().slice(0, 10); // YYYY-MM-DD
-    if (!dayMap.has(key)) {
-      dayMap.set(key, { date: key, orders: 0, paidOrders: 0, revenue: 0, commission: 0 });
-    }
-    const stat = dayMap.get(key)!;
-    stat.orders += 1;
-    if (o.payment_status === 'paid') {
-      stat.paidOrders += 1;
-      stat.revenue += Number(o.total_amount || 0);
-      stat.commission += commissionPerOrder;
-    }
-  }
-  const dayStats = Array.from(dayMap.values()).sort((a, b) => (a.date < b.date ? 1 : -1));
-
-  // First and most recent order-driven dates
-  const firstOrderDate = allOrders.length ? allOrders[allOrders.length - 1].created_at : null;
-  const lastOrderDate = allOrders.length ? allOrders[0].created_at : null;
-
-  // Best day by paid orders
-  const bestDay = dayStats.reduce<DayStat | null>((best, d) => {
-    if (!best || d.paidOrders > best.paidOrders) return d;
-    return best;
-  }, null);
-
-  const conversionRate = allOrders.length > 0 ? (paidOrders.length / allOrders.length) * 100 : 0;
-  const avgOrderValue = paidOrders.length > 0 ? totalRevenue / paidOrders.length : 0;
-
-  return (
-    <main className="admin-main">
-      <div style={{ marginBottom: '1rem' }}>
-        <Link href="/admin/influencers" style={{ fontSize: '0.9rem' }}>&larr; Back to Influencers</Link>
-      </div>
-
-      <div className="admin-card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
-          <div>
-            <h2 style={{ margin: 0 }}>{influencer.name}</h2>
-            <p style={{ color: 'var(--muted)', margin: '0.25rem 0 0' }}>{influencer.email}</p>
-            <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginTop: '0.25rem' }}>
-              Coupon(s): {couponCodes.length ? couponCodes.join(', ') : 'None assigned'}
-            </p>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--navy)' }}>₹{availableBalance.toFixed(2)}</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Available Balance</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Summary stats grid */}
-      <div className="admin-card">
-        <h3>Performance Summary</h3>
-        <div className="stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
-          <Stat label="Total Orders (all)" value={allOrders.length.toString()} />
-          <Stat label="Paid Orders" value={paidOrders.length.toString()} />
-          <Stat label="Pending Orders" value={pendingOrders.length.toString()} />
-          <Stat label="Failed Orders" value={failedOrders.length.toString()} />
-          <Stat label="Conversion Rate" value={`${conversionRate.toFixed(1)}%`} />
-          <Stat label="Revenue Driven" value={`₹${totalRevenue.toFixed(2)}`} />
-          <Stat label="Avg Order Value" value={`₹${avgOrderValue.toFixed(2)}`} />
-          <Stat label="Discount Given to Buyers" value={`₹${totalDiscountGiven.toFixed(2)}`} />
-          <Stat label="Commission / Order" value={`₹${commissionPerOrder.toFixed(2)}`} />
-          <Stat label="Total Commission Earned" value={`₹${totalCommissionEarned.toFixed(2)}`} />
-          <Stat label="Already Paid Out" value={`₹${totalPaidOut.toFixed(2)}`} />
-          <Stat label="Pending Payout Requests" value={`₹${totalPendingPayout.toFixed(2)}`} />
-        </div>
-        <div style={{ display: 'flex', gap: '2rem', marginTop: '1.5rem', flexWrap: 'wrap', fontSize: '0.85rem', color: 'var(--muted)' }}>
-          <span>First order: {firstOrderDate ? new Date(firstOrderDate).toLocaleDateString() : '—'}</span>
-          <span>Most recent order: {lastOrderDate ? new Date(lastOrderDate).toLocaleDateString() : '—'}</span>
-          <span>Best day: {bestDay ? `${new Date(bestDay.date).toLocaleDateString()} (${bestDay.paidOrders} paid orders)` : '—'}</span>
-        </div>
-      </div>
-
-      {/* Day-by-day breakdown */}
-      <div className="admin-card">
-        <h3>Orders by Day</h3>
-        {dayStats.length === 0 ? (
-          <p className="empty">No orders yet for this influencer's coupon(s).</p>
-        ) : (
-          <table className="admin-table" style={{ marginTop: '1rem' }}>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Total Orders</th>
-                <th>Paid Orders</th>
-                <th>Revenue</th>
-                <th>Commission Earned</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dayStats.map((d) => (
-                <tr key={d.date}>
-                  <td>{new Date(d.date).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</td>
-                  <td>{d.orders}</td>
-                  <td>{d.paidOrders}</td>
-                  <td>₹{d.revenue.toFixed(2)}</td>
-                  <td>₹{d.commission.toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* Individual orders */}
-      <div className="admin-card">
-        <h3>Order Details</h3>
-        {allOrders.length === 0 ? (
-          <p className="empty">No orders yet.</p>
-        ) : (
-          <table className="admin-table" style={{ marginTop: '1rem' }}>
-            <thead>
-              <tr>
-                <th>Order #</th>
-                <th>Date</th>
-                <th>Customer</th>
-                <th>Coupon Used</th>
-                <th>Amount</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {allOrders.map((o: any) => (
-                <tr key={o.id}>
-                  <td>{o.order_number}</td>
-                  <td>{new Date(o.created_at).toLocaleDateString()}</td>
-                  <td>{o.customer_name}</td>
-                  <td>{o.coupon_code}</td>
-                  <td>₹{Number(o.total_amount).toFixed(2)}</td>
-                  <td>
-                    <span className={`badge ${o.payment_status === 'paid' ? 'on' : 'off'}`}>
-                      {o.payment_status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* Payout history */}
-      <div className="admin-card">
-        <h3>Payout Request History</h3>
-        {allPayouts.length === 0 ? (
-          <p className="empty">No payout requests yet.</p>
-        ) : (
-          <table className="admin-table" style={{ marginTop: '1rem' }}>
-            <thead>
-              <tr>
-                <th>Requested On</th>
-                <th>Amount</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {allPayouts.map((p: any) => (
-                <tr key={p.id}>
-                  <td>{new Date(p.created_at).toLocaleDateString()}</td>
-                  <td>₹{Number(p.amount).toFixed(2)}</td>
-                  <td>
-                    <span className={`badge ${p.status === 'paid' ? 'on' : 'off'}`}>
-                      {p.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </main>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="stat" style={{ padding: '0.75rem', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
-      <div className="val" style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--navy)' }}>{value}</div>
-      <div className="label" style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.15rem' }}>{label}</div>
-    </div>
-  );
-}
-
-
 ===== FILE: src\app\admin\influencers\page.tsx =====
 
 import { supabaseAdmin } from '@/lib/supabaseServer';
@@ -2516,10 +2165,12 @@ export default function InvoicesExportPage() {
 'use server';
 import { revalidatePath } from 'next/cache';
 import { supabaseAdmin } from '@/lib/supabaseServer';
+import { getAdminUser } from '@/lib/requireAdmin';
 
 const VALID_STATUSES = ['new', 'packed', 'shipped', 'delivered', 'cancelled'];
 
 export async function updateFulfillmentStatus(orderId: number, status: string) {
+  if (!(await getAdminUser())) return { error: 'Unauthorized' };
   if (!VALID_STATUSES.includes(status)) return { error: 'Invalid status' };
 
   const supabase = supabaseAdmin();
@@ -2535,17 +2186,66 @@ export async function updateFulfillmentStatus(orderId: number, status: string) {
   revalidatePath('/admin/dashboard');
   return { error: null };
 }
+
 export async function updateTracking(orderId: number, courier: string, trackingNumber: string) {
+  if (!(await getAdminUser())) return { error: 'Unauthorized' };
+
   const supabase = supabaseAdmin();
-  const { error } = await supabase
-    .from('orders')
-    .update({ courier: courier || null, tracking_number: trackingNumber || null })
-    .eq('id', orderId);
+  const update: Record<string, any> = {
+    courier: courier || null,
+    tracking_number: trackingNumber || null,
+  };
+
+  // A tracking number means the parcel has been handed to the courier, so move
+  // the order to "shipped" automatically. Only from new/packed, and only if paid:
+  // shipped orders keep their original shipped time, and delivered or cancelled
+  // orders are never touched.
+  if (trackingNumber) {
+    const { data: order } = await supabase
+      .from('orders')
+      .select('fulfillment_status, payment_status')
+      .eq('id', orderId)
+      .maybeSingle();
+
+    const current = order?.fulfillment_status || 'new';
+    if (order?.payment_status === 'paid' && (current === 'new' || current === 'packed')) {
+      update.fulfillment_status = 'shipped';
+      update.shipped_at = new Date().toISOString();
+    }
+  }
+
+  const { error } = await supabase.from('orders').update(update).eq('id', orderId);
   if (error) return { error: error.message };
 
   revalidatePath('/admin/dashboard');
   revalidatePath(`/admin/orders/${orderId}`);
   return { error: null };
+}
+
+export async function markOrdersDelivered(orderIds: number[]) {
+  if (!(await getAdminUser())) return { error: 'Unauthorized', updated: 0 };
+
+  const ids = Array.from(new Set((orderIds || []).map(Number))).filter(
+    (n) => Number.isInteger(n) && n > 0
+  );
+  if (ids.length === 0) return { error: 'No orders selected.', updated: 0 };
+  if (ids.length > 200) return { error: 'Please select 200 orders or fewer at a time.', updated: 0 };
+
+  const supabase = supabaseAdmin();
+
+  // Only paid orders that are currently "shipped" can be marked delivered this way.
+  const { data, error } = await supabase
+    .from('orders')
+    .update({ fulfillment_status: 'delivered', delivered_at: new Date().toISOString() })
+    .in('id', ids)
+    .eq('payment_status', 'paid')
+    .eq('fulfillment_status', 'shipped')
+    .select('id');
+
+  if (error) return { error: error.message, updated: 0 };
+
+  revalidatePath('/admin/dashboard');
+  return { error: null, updated: data?.length ?? 0 };
 }
 
 
@@ -2615,7 +2315,7 @@ export default async function OrderDetailPage({ params }: { params: { id: string
         <div className="admin-card">
           <h3>Status</h3>
           <p>Payment: <span className={`badge ${order.payment_status}`}>{order.payment_status}</span></p>
-          <p>Fulfillment: <StatusSelect orderId={order.id} currentStatus={order.fulfillment_status || 'new'} /></p>
+          <p>Fulfillment: <StatusSelect key={order.fulfillment_status || 'new'} orderId={order.id} currentStatus={order.fulfillment_status || 'new'} /></p>
           <p>Placed: {new Date(order.created_at).toLocaleString('en-IN')}</p>
           <TrackingForm orderId={order.id} currentCourier={order.courier} currentTrackingNumber={order.tracking_number} />
         </div>
@@ -2686,6 +2386,7 @@ export default async function PrintShippingLabelPage({ params }: { params: { id:
 
 ===== FILE: src\app\admin\payouts\page.tsx =====
 
+import { requireAdmin } from '@/lib/requireAdmin';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import { revalidatePath } from 'next/cache';
 
@@ -2705,6 +2406,7 @@ export default async function PayoutsPage() {
 
   async function markAsPaid(id: number) {
     'use server';
+    await requireAdmin();
     const adminClient = supabaseAdmin();
     await adminClient.from('payout_requests').update({ status: 'paid' }).eq('id', id);
     revalidatePath('/admin/payouts');
@@ -2889,15 +2591,14 @@ export default function AdminLoginPage() {
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, supabaseServerClient } from '@/lib/supabaseServer';
-
-const ADMIN_EMAIL = 'abdshafeeque@gmail.com';
+import { isAdmin } from '@/lib/roles';
 
 export async function POST(req: NextRequest) {
   // Reject the request immediately unless it's genuinely coming from a
   // logged-in admin session � this endpoint previously had no auth check at all.
   const authClient = supabaseServerClient();
   const { data: { user } } = await authClient.auth.getUser();
-  if (!user || user.email !== ADMIN_EMAIL) {
+  if (!isAdmin(user)) {
     return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 });
   }
 
@@ -2996,15 +2697,15 @@ export async function POST(req: NextRequest) {
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, supabaseServerClient } from '@/lib/supabaseServer';
+import { isAdmin } from '@/lib/roles';
 
-const ADMIN_EMAIL = 'abdshafeeque@gmail.com';
 const PRODUCT_NAME = process.env.NEXT_PUBLIC_PRODUCT_NAME || 'Monteflour';
 
 export async function GET(req: NextRequest) {
   // Same auth check used by the other protected /api/admin/* routes.
   const authClient = supabaseServerClient();
   const { data: { user } } = await authClient.auth.getUser();
-  if (!user || user.email !== ADMIN_EMAIL) {
+  if (!isAdmin(user)) {
     return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 });
   }
 
@@ -3095,24 +2796,22 @@ function formatDateDDMMYYYY(isoDate: string): string {
 
 ===== FILE: src\app\api\admin\invoices\by-order\[orderId]\route.ts =====
 
-// src/app/api/admin/invoices/by-order/[orderId]/route.ts
-//
 // GET /api/admin/invoices/by-order/123
-// Looks up the invoice linked to this order and redirects to its stored
-// PDF. If no invoice exists yet (order predates this feature, or was a
-// Razorpay test-mode payment that got skipped), returns a plain message
-// instead of a broken redirect.
+// Admin only. Looks up the invoice for this order and sends you to a
+// temporary (2 minute) link to the PDF. The storage bucket is private,
+// so the PDF can't be opened without a link made by this route.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, supabaseServerClient } from '@/lib/supabaseServer';
+import { isAdmin } from '@/lib/roles';
 
-const ADMIN_EMAIL = 'abdshafeeque@gmail.com';
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest, { params }: { params: { orderId: string } }) {
   const authClient = supabaseServerClient();
   const { data: { user } } = await authClient.auth.getUser();
-  if (!user || user.email !== ADMIN_EMAIL) {
-    return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 });
+  if (!isAdmin(user)) {
+        return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 });
   }
 
   const orderId = Number(params.orderId);
@@ -3134,7 +2833,29 @@ export async function GET(req: NextRequest, { params }: { params: { orderId: str
     });
   }
 
-  return NextResponse.redirect(invoice.pdf_url);
+  // New invoices store just the file's location. Older ones stored a full public
+  // web link, so pull the location out of that if needed.
+  const stored: string = invoice.pdf_url;
+  const marker = '/object/public/invoices/';
+  const filePath = stored.includes(marker)
+    ? decodeURIComponent(stored.split(marker)[1])
+    : stored;
+
+  const { data: signed, error } = await supabase.storage
+    .from('invoices')
+    .createSignedUrl(filePath, 120);
+
+  if (error || !signed?.signedUrl) {
+    console.error('Could not create invoice link for order', orderId, error?.message);
+    return new NextResponse('Could not open this invoice. Please try again.', {
+      status: 500,
+      headers: { 'Content-Type': 'text/plain' },
+    });
+  }
+
+  const res = NextResponse.redirect(signed.signedUrl);
+  res.headers.set('Cache-Control', 'no-store');
+  return res;
 }
 
 
@@ -3152,8 +2873,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServerClient } from '@/lib/supabaseServer';
 import { calculateGstInclusive } from '@/lib/gst';
 import { generateInvoicePdf } from '@/lib/invoice-pdf';
-
-const ADMIN_EMAIL = 'abdshafeeque@gmail.com';
+import { isAdmin } from '@/lib/roles';
 
 // TODO: keep these in sync with the real values in generateInvoice.ts
 const SELLER = {
@@ -3168,8 +2888,8 @@ const UNIT_PRICE = Number(process.env.NEXT_PUBLIC_PRODUCT_PRICE || 500);
 export async function GET(req: NextRequest) {
   const authClient = supabaseServerClient();
   const { data: { user } } = await authClient.auth.getUser();
-  if (!user || user.email !== ADMIN_EMAIL) {
-    return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 });
+  if (!isAdmin(user)) {
+        return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 });
   }
 
   // Change ?state=Maharashtra in the URL to preview an inter-state (IGST) invoice.
@@ -3217,10 +2937,18 @@ export async function GET(req: NextRequest) {
 
 ===== FILE: src\app\api\apply-coupon\route.ts =====
 
+import { isRateLimited } from '@/lib/rateLimit';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 
 export async function POST(req: NextRequest) {
+  if (await isRateLimited(req, 'apply-coupon', 20, 600)) {
+    return NextResponse.json(
+      { valid: false, message: 'Too many attempts. Please wait a few minutes and try again.' },
+      { status: 429 }
+    );
+  }
+
   const body = await req.json();
   const cleanCode = String(body.code || '').trim().toUpperCase();
   const sub = Number(body.subtotal) || 0;
@@ -3270,6 +2998,7 @@ export async function POST(req: NextRequest) {
 
 ===== FILE: src\app\api\create-order\route.ts =====
 
+import { isRateLimited } from '@/lib/rateLimit';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 
@@ -3280,6 +3009,13 @@ function genOrderNumber() {
 }
 
 export async function POST(req: NextRequest) {
+  if (await isRateLimited(req, 'create-order', 15, 600)) {
+    return NextResponse.json(
+      { error: 'Too many attempts. Please wait a few minutes and try again.' },
+      { status: 429 }
+    );
+  }
+
   const body = await req.json();
 
   const name = String(body.name || '').trim();
@@ -3427,6 +3163,126 @@ export async function POST(req: NextRequest) {
 }
 
 
+===== FILE: src\app\api\cron\cleanup-orders\route.ts =====
+
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabaseServer';
+import { markOrderPaid } from '@/lib/markOrderPaid';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
+export async function GET(req: NextRequest) {
+  // Only Vercel's scheduler (which knows CRON_SECRET) is allowed in.
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.headers.get('authorization') !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
+  }
+
+  const supabase = supabaseAdmin();
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+  // Pending orders older than 1 hour. Newer ones may still be mid-payment.
+  const { data: stale, error } = await supabase
+    .from('orders')
+    .select('id, order_number, razorpay_order_id')
+    .eq('payment_status', 'pending')
+    .lt('created_at', oneHourAgo)
+    .order('created_at', { ascending: true })
+    .limit(200);
+
+  if (error) {
+    console.error('Cleanup: could not load pending orders:', error.message);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  const auth = Buffer.from(
+    `${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`
+  ).toString('base64');
+
+  // Marks an order failed + cancelled, but only if it is still pending.
+  async function markFailed(id: number) {
+    await supabase
+      .from('orders')
+      .update({ payment_status: 'failed', fulfillment_status: 'cancelled' })
+      .eq('id', id)
+      .eq('payment_status', 'pending');
+  }
+
+  let recovered = 0;
+  let markedFailed = 0;
+  let skipped = 0;
+
+  for (const order of stale || []) {
+    if (!order.razorpay_order_id) {
+      await markFailed(order.id);
+      markedFailed++;
+      continue;
+    }
+
+    // Ask Razorpay what really happened to this order.
+    let rpRes: Response;
+    try {
+      rpRes = await fetch(
+        `https://api.razorpay.com/v1/orders/${order.razorpay_order_id}/payments`,
+        { headers: { Authorization: `Basic ${auth}` } }
+      );
+    } catch {
+      skipped++; // network problem: leave it pending, try again tomorrow
+      continue;
+    }
+
+    // 400/404 = Razorpay has no such order in this mode (e.g. an old test order
+    // after switching to live keys), so there is no payment to wait for.
+    if (rpRes.status === 400 || rpRes.status === 404) {
+      await markFailed(order.id);
+      markedFailed++;
+      continue;
+    }
+    if (!rpRes.ok) {
+      skipped++; // any other Razorpay problem: leave it alone
+      continue;
+    }
+
+    const body = await rpRes.json();
+    const payments: any[] = body.items || [];
+
+    // Money was actually collected: the webhook must have been missed. Fix it.
+    const captured = payments.find((p) => p.status === 'captured');
+    if (captured) {
+      try {
+        await markOrderPaid(order.razorpay_order_id, captured.id, captured.amount);
+        recovered++;
+      } catch (err) {
+        console.error('Cleanup: could not mark paid', order.order_number, err);
+        skipped++;
+      }
+      continue;
+    }
+
+    // Payment is held but not collected yet: don't cancel it.
+    if (payments.some((p) => p.status === 'authorized')) {
+      skipped++;
+      continue;
+    }
+
+    // No payment at all: the customer abandoned checkout.
+    await markFailed(order.id);
+    markedFailed++;
+  }
+
+  // Housekeeping: forget rate-limit counters older than a day.
+  await supabase
+    .from('rate_limits')
+    .delete()
+    .lt('window_start', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+
+  const summary = { checked: (stale || []).length, recovered, markedFailed, skipped };
+  console.log('Cleanup finished:', JSON.stringify(summary));
+  return NextResponse.json({ ok: true, ...summary });
+}
+
+
 ===== FILE: src\app\api\razorpay-webhook\route.ts =====
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -3523,10 +3379,18 @@ export async function GET(req: NextRequest) {
 
 ===== FILE: src\app\api\track-order\route.ts =====
 
+import { isRateLimited } from '@/lib/rateLimit';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 
 export async function POST(req: NextRequest) {
+  if (await isRateLimited(req, 'track-order', 15, 600)) {
+    return NextResponse.json(
+      { error: 'Too many attempts. Please wait a few minutes and try again.' },
+      { status: 429 }
+    );
+  }
+
   const body = await req.json();
   const query = String(body.query || '').trim();
 
@@ -5245,9 +5109,10 @@ export default function InfluencerOrdersTable({ orders }: { orders: any[] }) {
 ===== FILE: src\components\OrdersTable.tsx =====
 
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import StatusSelect from '@/components/StatusSelect';
+import { markOrdersDelivered } from '@/app/admin/orders/actions';
 
 const PERIODS = [
   { key: 'day', label: 'Today' },
@@ -5258,6 +5123,17 @@ const PERIODS = [
   { key: 'all', label: 'All Time' },
   { key: 'custom', label: 'Custom Range' },
 ] as const;
+
+const STATUS_FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'new', label: 'New' },
+  { key: 'packed', label: 'Packed' },
+  { key: 'shipped', label: 'Shipped' },
+  { key: 'delivered', label: 'Delivered' },
+  { key: 'cancelled', label: 'Cancelled' },
+] as const;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function getPeriodStart(key: string): number | null {
   const now = new Date();
@@ -5291,8 +5167,22 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
   const [page, setPage] = useState(1);
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
+  const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]['key']>('all');
+  const [ageMode, setAgeMode] = useState<'any' | 'more' | 'less'>('any');
+  const [ageDays, setAgeDays] = useState('');
+  const [selected, setSelected] = useState<number[]>([]);
+  const [bulkMsg, setBulkMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [isBulkPending, startBulk] = useTransition();
 
-  const filtered = useMemo(() => {
+  // The age filter only counts once a mode is chosen AND a number is typed.
+  const ageLimit = ageDays.trim() === '' ? null : Number(ageDays);
+  const ageActive = ageMode !== 'any' && ageLimit !== null && !Number.isNaN(ageLimit);
+  const filtersActive = statusFilter !== 'all' || ageActive;
+
+  // Step 1: tab + time period + age. (Status is applied after, so the status
+  // buttons can show how many orders each one would give.)
+  const baseFiltered = useMemo(() => {
+    const now = Date.now();
     return orders.filter((o) => {
       const matchesTab = tab === 'pending'
         ? (o.payment_status === 'pending' || o.payment_status === 'failed')
@@ -5302,20 +5192,92 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
       if (period === 'custom') {
         if (customFrom && orderTime < new Date(customFrom).setHours(0, 0, 0, 0)) return false;
         if (customTo && orderTime > new Date(customTo).setHours(23, 59, 59, 999)) return false;
-        return true;
+      } else {
+        const cutoff = getPeriodStart(period);
+        if (cutoff && orderTime < cutoff) return false;
       }
-      const cutoff = getPeriodStart(period);
-      if (cutoff && orderTime < cutoff) return false;
+      if (ageActive) {
+        const ageInDays = (now - orderTime) / DAY_MS;
+        if (ageMode === 'more' && !(ageInDays > (ageLimit as number))) return false;
+        if (ageMode === 'less' && !(ageInDays < (ageLimit as number))) return false;
+      }
       return true;
     });
-  }, [orders, tab, period, customFrom, customTo]);
+  }, [orders, tab, period, customFrom, customTo, ageMode, ageLimit, ageActive]);
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      all: baseFiltered.length, new: 0, packed: 0, shipped: 0, delivered: 0, cancelled: 0,
+    };
+    for (const o of baseFiltered) {
+      const s = o.fulfillment_status || 'new';
+      counts[s] = (counts[s] || 0) + 1;
+    }
+    return counts;
+  }, [baseFiltered]);
+
+  // Step 2: the status button on top of that.
+  const filtered = useMemo(
+    () =>
+      statusFilter === 'all'
+        ? baseFiltered
+        : baseFiltered.filter((o) => (o.fulfillment_status || 'new') === statusFilter),
+    [baseFiltered, statusFilter]
+  );
 
   useEffect(() => {
     setPage(1);
-  }, [tab, period]);
+  }, [tab, period, statusFilter, ageMode, ageDays]);
+
+  // Forget any ticked boxes whenever the visible list changes, so you can
+  // never mark orders that are no longer on screen.
+  useEffect(() => {
+    setSelected([]);
+  }, [tab, period, page, customFrom, customTo, statusFilter, ageMode, ageDays]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  // Only paid orders that are currently "shipped" can be marked delivered in bulk.
+  const selectableIds = paginated
+    .filter((o) => o.payment_status === 'paid' && o.fulfillment_status === 'shipped')
+    .map((o) => o.id as number);
+  const selectedIds = selected.filter((id) => selectableIds.includes(id));
+  const allSelected = selectableIds.length > 0 && selectedIds.length === selectableIds.length;
+
+  function toggleOne(id: number) {
+    setBulkMsg(null);
+    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function toggleAll() {
+    setBulkMsg(null);
+    setSelected(allSelected ? [] : selectableIds);
+  }
+
+  function clearFilters() {
+    setStatusFilter('all');
+    setAgeMode('any');
+    setAgeDays('');
+  }
+
+  function handleMarkDelivered() {
+    if (selectedIds.length === 0) return;
+    const n = selectedIds.length;
+    if (!window.confirm(`Mark ${n} order${n === 1 ? '' : 's'} as delivered?`)) return;
+    startBulk(async () => {
+      const result = await markOrdersDelivered(selectedIds);
+      if (result.error) {
+        setBulkMsg({ text: result.error, ok: false });
+        return;
+      }
+      setSelected([]);
+      setBulkMsg({
+        text: `${result.updated} order${result.updated === 1 ? '' : 's'} marked as delivered.`,
+        ok: true,
+      });
+    });
+  }
 
   const activeOrders = filtered.filter((o) => o.fulfillment_status !== 'cancelled');
   const totalValue = activeOrders.reduce((sum, o) => sum + Number(o.total_amount), 0);
@@ -5323,7 +5285,13 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
   const pendingDelivery = filtered.filter(
     (o) => (o.fulfillment_status || 'new') !== 'delivered' && o.fulfillment_status !== 'cancelled'
   ).length;
-  const allDelivered = tab === 'paid' && activeOrders.length > 0 && pendingDelivery === 0;
+
+  // "All Orders Delivered" is judged on the whole period, not on the status button.
+  const baseActive = baseFiltered.filter((o) => o.fulfillment_status !== 'cancelled');
+  const basePendingDelivery = baseActive.filter(
+    (o) => (o.fulfillment_status || 'new') !== 'delivered'
+  ).length;
+  const allDelivered = tab === 'paid' && baseActive.length > 0 && basePendingDelivery === 0;
 
   return (
     <>
@@ -5353,12 +5321,82 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
         </div>
       )}
 
+      <div className="period-filters" style={{ marginBottom: '1rem' }}>
+        <span className="filter-label">Status</span>
+        {STATUS_FILTERS.map((s) => (
+          <button
+            key={s.key}
+            className={`period-btn ${statusFilter === s.key ? 'active' : ''}`}
+            onClick={() => setStatusFilter(s.key)}
+          >
+            {s.label} ({statusCounts[s.key] ?? 0})
+          </button>
+        ))}
+      </div>
+
+      <div className="age-filter">
+        <span className="filter-label">Ordered</span>
+        <select value={ageMode} onChange={(e) => setAgeMode(e.target.value as 'any' | 'more' | 'less')}>
+          <option value="any">any time</option>
+          <option value="more">more than</option>
+          <option value="less">less than</option>
+        </select>
+        {ageMode !== 'any' && (
+          <>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={ageDays}
+              onChange={(e) => setAgeDays(e.target.value)}
+              placeholder="days"
+            />
+            <span className="filter-label">days ago</span>
+          </>
+        )}
+        {filtersActive && (
+          <button type="button" className="period-btn" onClick={clearFilters}>Clear filters</button>
+        )}
+        <span className="filter-count">
+          {filtered.length} order{filtered.length === 1 ? '' : 's'}
+        </span>
+      </div>
+
+      {tab === 'paid' && (selectableIds.length > 0 || bulkMsg) && (
+        <div className="bulk-bar">
+          <span>{selectedIds.length} selected</span>
+          <button
+            type="button"
+            className="btn-submit"
+            onClick={handleMarkDelivered}
+            disabled={selectedIds.length === 0 || isBulkPending}
+          >
+            {isBulkPending ? 'Updating…' : 'Mark selected as delivered'}
+          </button>
+          {bulkMsg && (
+            <span style={{ color: bulkMsg.ok ? '#2E8B57' : '#C0392B' }}>{bulkMsg.text}</span>
+          )}
+        </div>
+      )}
+
       {filtered.length === 0 ? (
-        <div className="empty">No orders in this period.</div>
+        <div className="empty">No orders match the current filters.</div>
       ) : (
         <table className="admin-table">
           <thead>
             <tr>
+              {tab === 'paid' && (
+                <th style={{ width: 40 }}>
+                  <input
+                    type="checkbox"
+                    className="row-check"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    disabled={selectableIds.length === 0}
+                    aria-label="Select all shipped orders"
+                  />
+                </th>
+              )}
               <th>Order #</th><th>Customer</th><th>Phone</th><th>City / State</th>
               <th>Qty</th><th>Coupon</th><th>Total</th><th>Payment</th><th>Attempts</th><th>Fulfillment</th><th>Date</th><th>Invoice</th>
             </tr>
@@ -5366,6 +5404,19 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
           <tbody>
             {paginated.map((o: any) => (
               <tr key={o.id}>
+                {tab === 'paid' && (
+                  <td>
+                    {o.payment_status === 'paid' && o.fulfillment_status === 'shipped' && (
+                      <input
+                        type="checkbox"
+                        className="row-check"
+                        checked={selected.includes(o.id)}
+                        onChange={() => toggleOne(o.id)}
+                        aria-label={`Select order ${o.order_number}`}
+                      />
+                    )}
+                  </td>
+                )}
                 <td><Link href={`/admin/orders/${o.id}`}>{o.order_number}</Link></td>
                 <td>{o.customer_name}<br /><small style={{ color: '#5A7A94' }}>{o.email}</small></td>
                 <td>{o.phone}</td>
@@ -5375,15 +5426,21 @@ export default function OrdersTable({ orders }: { orders: any[] }) {
                 <td>₹{Number(o.total_amount).toFixed(2)}</td>
                 <td><span className={`badge ${o.payment_status}`}>{o.payment_status}</span></td>
                 <td>{o.attempt_count && o.attempt_count > 1 ? `${o.attempt_count}x` : '—'}</td>
-                <td><StatusSelect orderId={o.id} currentStatus={o.fulfillment_status || 'new'} /></td>
+                <td>
+                  <StatusSelect
+                    key={`${o.id}-${o.fulfillment_status || 'new'}`}
+                    orderId={o.id}
+                    currentStatus={o.fulfillment_status || 'new'}
+                  />
+                </td>
                 <td>{new Date(o.created_at).toLocaleString('en-IN')}</td>
-              <td>
-                 {o.payment_status === 'paid' && (
-                   <a href={`/api/admin/invoices/by-order/${o.id}`} target="_blank" rel="noopener noreferrer">
-                     View
-                   </a>
-                 )}
-               </td>
+                <td>
+                  {o.payment_status === 'paid' && (
+                    <a href={`/api/admin/invoices/by-order/${o.id}`} target="_blank" rel="noopener noreferrer">
+                      View
+                    </a>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -5699,7 +5756,7 @@ export async function generateAndStoreInvoice(orderId: number) {
     totalAmount: order.total_amount,
   });
 
-  // 6. Store the PDF in Supabase Storage.
+  // 6. Store the PDF in Supabase Storage (the bucket is private).
   const filePath = `invoices/${invoiceNumber.replace(/\//g, "-")}.pdf`;
   const { error: uploadError } = await supabase.storage
     .from("invoices")
@@ -5708,8 +5765,6 @@ export async function generateAndStoreInvoice(orderId: number) {
   if (uploadError) {
     throw new Error(`Failed to store invoice PDF: ${uploadError.message}`);
   }
-
-  const { data: urlData } = supabase.storage.from("invoices").getPublicUrl(filePath);
 
   // 7. Persist the invoice record — this is what your books/GSTR-1 export reads from.
   const { data: invoice, error: insertError } = await supabase
@@ -5727,7 +5782,7 @@ export async function generateAndStoreInvoice(orderId: number) {
       igst_amount: igst,
       total_amount: order.total_amount,
       hsn_code: HSN_CODE,
-      pdf_url: urlData.publicUrl,
+      pdf_url: filePath,
     })
     .select()
     .single();
@@ -6041,6 +6096,82 @@ export async function markOrderPaid(
   }
 
   return { status: 'paid_now', orderNumber: order.order_number };
+}
+
+
+===== FILE: src\lib\rateLimit.ts =====
+
+import { NextRequest } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabaseServer';
+
+function getClientIp(req: NextRequest): string {
+  const forwarded = req.headers.get('x-forwarded-for');
+  if (forwarded) return forwarded.split(',')[0].trim();
+  return req.headers.get('x-real-ip') || 'unknown';
+}
+
+// Returns true if this visitor has used up their tries for this window.
+// If anything goes wrong checking, it returns false (lets them through),
+// so a problem with the limiter can never block a real customer.
+export async function isRateLimited(
+  req: NextRequest,
+  name: string,
+  limit: number,
+  windowSeconds: number
+): Promise<boolean> {
+  try {
+    const key = `${name}:${getClientIp(req)}`;
+    const { data, error } = await supabaseAdmin().rpc('check_rate_limit', {
+      p_key: key,
+      p_limit: limit,
+      p_window_seconds: windowSeconds,
+    });
+    if (error) {
+      console.error('Rate limit check failed (allowing request):', error.message);
+      return false;
+    }
+    return data === false;
+  } catch (err) {
+    console.error('Rate limit check crashed (allowing request):', err);
+    return false;
+  }
+}
+
+
+===== FILE: src\lib\requireAdmin.ts =====
+
+import { redirect } from 'next/navigation';
+import { supabaseServerClient } from '@/lib/supabaseServer';
+import { isAdmin } from '@/lib/roles';
+
+// Returns the logged-in admin, or null if the caller is not an admin.
+// getUser() asks Supabase to confirm the login, so it can't be faked with a cookie.
+export async function getAdminUser() {
+  const supabase = supabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  return isAdmin(user) ? user : null;
+}
+
+// Use at the top of an admin action. Non-admins are sent to the login page.
+export async function requireAdmin() {
+  const user = await getAdminUser();
+  if (!user) redirect('/admin-login');
+  return user;
+}
+
+
+===== FILE: src\lib\roles.ts =====
+
+import type { User } from '@supabase/supabase-js';
+
+// app_metadata can only be written by your server (or the Supabase dashboard),
+// never by a user from their browser, so it is safe to use for roles.
+export function isAdmin(user: User | null | undefined): boolean {
+  return user?.app_metadata?.role === 'admin';
+}
+
+export function displayName(user: User | null | undefined): string {
+  return (user?.app_metadata?.name as string) || user?.email || 'Admin';
 }
 
 
